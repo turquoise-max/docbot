@@ -1,34 +1,29 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import type { TiptapEditorRef } from '@/components/editor/TiptapEditor'
+import type { TinyMceEditorRef } from '@/components/editor/TinyMceEditor'
 import ChatPanel from '@/components/chat/ChatPanel'
 import dynamic from 'next/dynamic'
 
-const TiptapEditor = dynamic(
-  () => import('@/components/editor/TiptapEditor'),
+const TinyMceEditor = dynamic(
+  () => import('@/components/editor/TinyMceEditor'),
   { ssr: false }
 )
 
 export default function Home() {
-  const editorRef = useRef<TiptapEditorRef>(null)
+  const editorRef = useRef<TinyMceEditorRef>(null)
   const [content, setContent] = useState('<h1>새 문서</h1><p>여기에 내용을 입력하거나 AI에게 초안 작성을 부탁해보세요.</p>')
+  const [selectedHtml, setSelectedHtml] = useState('')
   const [selectedText, setSelectedText] = useState('')
-  const [selectionRange, setSelectionRange] = useState<{ from: number; to: number } | null>(null)
 
-  const handleSelection = (text: string, range: { from: number; to: number } | null) => {
+  const handleSelection = (html: string, text: string) => {
+    setSelectedHtml(html)
     setSelectedText(text)
-    setSelectionRange(range)
   }
 
   const handleApplyEdit = (newContent: string) => {
-    // 만약 선택 영역이 있다면 해당 영역만 교체하는 로직이 필요하지만,
-    // 현재는 단순화를 위해 전체 내용을 업데이트하거나 추가하는 방식으로 구현
-    // 실제 운영 시에는 TipTap의 commands.insertContentAt 등을 사용해야 함
-    if (selectedText && selectionRange) {
-      // 부분 수정 로직 (TipTap Editor 내부에서 처리하는 것이 좋음)
-      // 여기서는 간단히 전체 content 업데이트 예시로 처리
-      setContent(newContent) 
+    if (selectedHtml && editorRef.current) {
+      editorRef.current.replaceSelectionHtml(newContent)
     } else {
       setContent(newContent)
     }
@@ -56,7 +51,7 @@ export default function Home() {
 
         <div className="flex-1 overflow-hidden p-8 bg-gray-50/50">
           <div className="max-w-4xl mx-auto h-full">
-            <TiptapEditor 
+            <TinyMceEditor 
               ref={editorRef}
               content={content} 
               onChange={setContent} 
@@ -67,8 +62,9 @@ export default function Home() {
       </div>
 
       {/* AI 챗 패널 */}
-      <ChatPanel 
-        selectedText={selectedText} 
+      <ChatPanel
+        selectedHtml={selectedHtml}
+        selectedText={selectedText}
         editorContext={content}
         onApplyEdit={handleApplyEdit}
         editorRef={editorRef}

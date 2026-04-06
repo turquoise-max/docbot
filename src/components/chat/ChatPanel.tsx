@@ -12,16 +12,17 @@ function cn(...inputs: ClassValue[]) {
 }
 
 import { RefObject } from 'react'
-import { TiptapEditorRef } from '../editor/TiptapEditor'
+import { TinyMceEditorRef } from '../editor/TinyMceEditor'
 
 interface ChatPanelProps {
+  selectedHtml: string
   selectedText: string
   editorContext: string
   onApplyEdit: (newContent: string) => void
-  editorRef?: RefObject<TiptapEditorRef>
+  editorRef?: RefObject<TinyMceEditorRef>
 }
 
-export default function ChatPanel({ selectedText, editorContext, onApplyEdit, editorRef }: ChatPanelProps) {
+export default function ChatPanel({ selectedHtml, selectedText, editorContext, onApplyEdit, editorRef }: ChatPanelProps) {
   const [pendingUpdate, setPendingUpdate] = useState<string | null>(null)
   const activePreviewIdRef = useRef<string | null>(null)
   const isStreamingRef = useRef<boolean>(false)
@@ -29,6 +30,7 @@ export default function ChatPanel({ selectedText, editorContext, onApplyEdit, ed
   const { messages, input, handleInputChange, handleSubmit, isLoading, stop } = useChat({
     api: '/api/chat',
     body: {
+      selectedHtml,
       selectedText,
       editorContext,
     },
@@ -37,76 +39,12 @@ export default function ChatPanel({ selectedText, editorContext, onApplyEdit, ed
     },
     onFinish: (message) => {
       isStreamingRef.current = false
-      // Fallback for full document updates
-      const fullDocMatch = message.content.match(/\[UPDATE_EDITOR_BLOCK\]:\s*<html>([\s\S]*?)<\/html>/)
-      if (fullDocMatch && fullDocMatch[1] && !message.content.includes('<blockId>')) {
-        setPendingUpdate(fullDocMatch[1])
+      const selectionMatch = message.content.match(/\[UPDATE_EDITOR_SELECTION\]:\s*<html>([\s\S]*?)<\/html>/)
+      if (selectionMatch && selectionMatch[1]) {
+        setPendingUpdate(selectionMatch[1])
       }
     },
   })
-
-  // Watch messages for streaming block updates
-  useEffect(() => {
-    if (!isStreamingRef.current || !editorRef?.current) return
-
-    const lastMessage = messages[messages.length - 1]
-    if (lastMessage?.role !== 'assistant') return
-
-    const content = lastMessage.content
-    const blockMatch = content.match(/\[UPDATE_EDITOR_BLOCK\]:\s*<blockId>\s*(.*?)\s*<\/blockId>\s*<html>([\s\S]*)/)
-    
-    if (blockMatch && blockMatch[1]) {
-      const blockId = blockMatch[1]
-      let newHtml = blockMatch[2]
-      if (newHtml.endsWith('</html>')) {
-        newHtml = newHtml.replace(/<\/html>$/, '')
-      }
-
-      const editor = editorRef.current.getEditor()
-      if (!editor) return
-
-      // If we don't have an active preview, find the block and create one
-      if (!activePreviewIdRef.current) {
-        let targetPos = -1
-        let originalContent = ''
-        let nodeSize = 0
-
-        editor.state.doc.descendants((node, pos) => {
-          if (node.attrs.blockId === blockId) {
-            targetPos = pos
-            originalContent = JSON.stringify(node.toJSON())
-            nodeSize = node.nodeSize
-            return false
-          }
-        })
-
-        if (targetPos !== -1) {
-          // Set preview block
-          const id = `ai-preview-${Date.now()}`
-          activePreviewIdRef.current = id
-          
-          editor.chain().focus()
-            .deleteRange({ from: targetPos, to: targetPos + nodeSize })
-            .insertContentAt(targetPos, {
-              type: 'aiPreview',
-              attrs: {
-                id,
-                originalContent,
-                newContent: newHtml,
-                blockId,
-              }
-            })
-            .run()
-        }
-      } else {
-        // Update existing preview block
-        editor.commands.updateAiPreviewContent({
-          id: activePreviewIdRef.current,
-          content: newHtml
-        })
-      }
-    }
-  }, [messages, editorRef])
 
   // Handle aborting from the editor's reject button
   useEffect(() => {
@@ -142,9 +80,9 @@ export default function ChatPanel({ selectedText, editorContext, onApplyEdit, ed
     <div className="flex flex-col h-full border-l bg-gray-50 w-[400px]">
       <div className="p-4 border-b bg-white font-bold text-gray-700">
         AI 문서 도우미
-        {selectedText && (
+        {selectedHtml && (
           <div className="text-xs font-normal text-blue-600 mt-1 truncate">
-            선택 영역 수정 중: "{selectedText}"
+            선택 영역 수정 중...
           </div>
         )}
       </div>
@@ -161,8 +99,8 @@ export default function ChatPanel({ selectedText, editorContext, onApplyEdit, ed
                 <span className="font-bold">{m.role === 'user' ? '나' : '문서봇'}</span>
               </div>
               <div className="whitespace-pre-wrap leading-relaxed">
-                {/* UPDATE_EDITOR 태그 제외하고 텍스트만 표시 */}
-                {m.content.split(/\[UPDATE_EDITOR(_BLOCK)?\]/)[0]}
+              {/* UPDATE_EDITOR 태그 제외하고 텍스트만 표시 */}
+              {m.content.split(/\[UPDATE_EDITOR(_SELECTION)?\]/)[0]}
               </div>
             </div>
           </div>
