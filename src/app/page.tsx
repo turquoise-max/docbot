@@ -1,101 +1,78 @@
-import Image from "next/image";
+'use client'
+
+import { useState, useRef } from 'react'
+import type { TiptapEditorRef } from '@/components/editor/TiptapEditor'
+import ChatPanel from '@/components/chat/ChatPanel'
+import dynamic from 'next/dynamic'
+
+const TiptapEditor = dynamic(
+  () => import('@/components/editor/TiptapEditor'),
+  { ssr: false }
+)
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const editorRef = useRef<TiptapEditorRef>(null)
+  const [content, setContent] = useState('<h1>새 문서</h1><p>여기에 내용을 입력하거나 AI에게 초안 작성을 부탁해보세요.</p>')
+  const [selectedText, setSelectedText] = useState('')
+  const [selectionRange, setSelectionRange] = useState<{ from: number; to: number } | null>(null)
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+  const handleSelection = (text: string, range: { from: number; to: number } | null) => {
+    setSelectedText(text)
+    setSelectionRange(range)
+  }
+
+  const handleApplyEdit = (newContent: string) => {
+    // 만약 선택 영역이 있다면 해당 영역만 교체하는 로직이 필요하지만,
+    // 현재는 단순화를 위해 전체 내용을 업데이트하거나 추가하는 방식으로 구현
+    // 실제 운영 시에는 TipTap의 commands.insertContentAt 등을 사용해야 함
+    if (selectedText && selectionRange) {
+      // 부분 수정 로직 (TipTap Editor 내부에서 처리하는 것이 좋음)
+      // 여기서는 간단히 전체 content 업데이트 예시로 처리
+      setContent(newContent) 
+    } else {
+      setContent(newContent)
+    }
+  }
+
+  return (
+    <main className="flex h-screen bg-white">
+      {/* 사이드바 (추후 구현) */}
+      <div className="w-16 border-r bg-gray-50 flex flex-col items-center py-4 gap-4">
+        <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">D</div>
+      </div>
+
+      {/* 에디터 영역 */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="h-14 border-b flex items-center px-6 justify-between bg-white">
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-medium text-gray-500 underline decoration-gray-300">내 문서</span>
+            <span className="text-sm font-bold text-gray-800">무제 문서</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="px-3 py-1.5 text-xs font-medium border rounded-md hover:bg-gray-50">저장</button>
+            <button className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700">공유</button>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-hidden p-8 bg-gray-50/50">
+          <div className="max-w-4xl mx-auto h-full">
+            <TiptapEditor 
+              ref={editorRef}
+              content={content} 
+              onChange={setContent} 
+              onSelection={handleSelection}
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+      </div>
+
+      {/* AI 챗 패널 */}
+      <ChatPanel 
+        selectedText={selectedText} 
+        editorContext={content}
+        onApplyEdit={handleApplyEdit}
+        editorRef={editorRef}
+      />
+    </main>
+  )
 }
