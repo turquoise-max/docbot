@@ -14,36 +14,21 @@
  *    - 외부 API: ConvertAPI 등
  */
 
-import * as mammoth from 'mammoth';
+import { parseDocx, ParseResult } from '@/features/docx-parser/parser';
 
 /**
  * DOCX 파일을 서식이 보존된 HTML로 변환합니다.
  * 
  * @param file 업로드된 DOCX 파일
- * @returns 변환된 HTML 문자열 (인라인 스타일 포함)
+ * @returns 변환된 HTML 문자열과 페이지 여백 정보
  */
-export async function parseDocxToRetainedHtml(file: File): Promise<string> {
-  console.log(`Parsing ${file.name} to retained HTML...`);
+export async function parseDocxToRetainedHtml(file: File): Promise<ParseResult> {
+  console.log(`Parsing ${file.name} to retained HTML with custom parser...`);
   
   try {
     const arrayBuffer = await file.arrayBuffer();
-    const options = {
-      styleMap: [
-        "p[style-name='Title'] => h1[style='font-size: 2em; font-weight: bold;']",
-        "p[style-name='Subtitle'] => h2[style='font-size: 1.5em; color: #666;']",
-        "p[style-name='Heading 1'] => h1[style='font-size: 2em; font-weight: bold; margin-bottom: 0.5em;']",
-        "p[style-name='Heading 2'] => h2[style='font-size: 1.5em; font-weight: bold; margin-bottom: 0.5em;']",
-        "p[style-name='Heading 3'] => h3[style='font-size: 1.17em; font-weight: bold; margin-bottom: 0.5em;']",
-        "table => table[style='border-collapse: collapse; width: 100%; border: 1px solid black;']",
-        "b => strong",
-        "i => em",
-        "u => u",
-        "strike => del"
-      ]
-    };
-    
-    const result = await mammoth.convertToHtml({ arrayBuffer }, options);
-    return result.value;
+    const result = await parseDocx(arrayBuffer);
+    return result;
   } catch (error) {
     console.error('Error parsing DOCX:', error);
     throw new Error('Failed to parse DOCX file');

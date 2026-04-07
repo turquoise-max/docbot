@@ -77,7 +77,7 @@ const TinyMceEditor = forwardRef<TinyMceEditorRef, TinyMceEditorProps>(
               'bold italic forecolor | alignleft aligncenter ' +
               'alignright alignjustify | bullist numlist outdent indent | ' +
               'removeformat | pagebreak | help',
-            content_style: 'body { font-family:Helvetica,Arial,sans-serif; font-size:14px; width: 210mm; min-height: 297mm; padding: 20mm; margin: 2rem auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); background-color: #ffffff; box-sizing: border-box; } .mce-pagebreak { cursor: default; display: block; border: 0; width: 100%; height: 5px; border-top: 2px dashed #ccc; margin-top: 15px; page-break-before: always; } html { background-color: transparent; }',
+            content_style: 'body { font-family:"Malgun Gothic", "맑은 고딕", sans-serif; font-size:14px; width: 210mm; min-height: 297mm; padding: 25.4mm; margin: 2rem auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); background-color: #ffffff; box-sizing: border-box; } .mce-pagebreak { cursor: default; display: block; border: 0; width: 100%; height: 5px; border-top: 2px dashed #ccc; margin-top: 15px; page-break-before: always; } html { background-color: #f0f0f0; }',
             language: 'ko_KR',
             // 다운로드 받은 한국어 언어팩을 public/langs/ko_KR.js 에 위치시키고 주석을 해제하세요.
             language_url: '/langs/ko_KR.js',

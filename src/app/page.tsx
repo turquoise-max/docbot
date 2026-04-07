@@ -19,7 +19,7 @@ export default function HomePage() {
     try {
       const { data, error } = await supabase
         .from('documents')
-        .insert({ title: '제목 없는 문서', content: '<h1>제목 없는 문서</h1><p><br/></p>' })
+        .insert({ title: '제목 없는 문서', content_html: '<h1>제목 없는 문서</h1><p><br/></p>', user_id: null })
         .select()
         .single()
 
@@ -49,7 +49,7 @@ export default function HomePage() {
 
       const { data, error } = await supabase
         .from('documents')
-        .insert({ title, content: htmlContent })
+        .insert({ title, content_html: htmlContent, user_id: null })
         .select()
         .single()
 

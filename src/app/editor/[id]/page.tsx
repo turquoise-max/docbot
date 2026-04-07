@@ -1,32 +1,53 @@
 'use client'
 
-import { useState, useRef } from 'react'
-import type { TinyMceEditorRef } from '@/components/editor/TinyMceEditor'
+import { useState, useRef, useEffect } from 'react'
+import { useParams } from 'next/navigation'
+import type { DocEditorRef } from '@/features/document-editor/DocEditor'
 import ChatPanel from '@/components/chat/ChatPanel'
-import dynamic from 'next/dynamic'
-
-const TinyMceEditor = dynamic(
-  () => import('@/components/editor/TinyMceEditor'),
-  { ssr: false }
-)
-
-import { useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { DocEditor } from '@/features/document-editor/DocEditor'
 
 export default function EditorPage() {
-  const editorRef = useRef<TinyMceEditorRef>(null)
-  const [content, setContent] = useState('<h1>새 문서</h1><p>여기에 내용을 입력하거나 AI에게 초안 작성을 부탁해보세요.</p>')
+  const params = useParams()
+  const id = params.id as string
+  const supabase = createClient()
+
+  const editorRef = useRef<DocEditorRef>(null)
+  const [content, setContent] = useState('')
+  const [title, setTitle] = useState('무제 문서')
   const [selectedHtml, setSelectedHtml] = useState('')
   const [selectedText, setSelectedText] = useState('')
   const [isInitializing, setIsInitializing] = useState(true)
 
   useEffect(() => {
-    const initialData = sessionStorage.getItem('docbot_initial_content')
-    if (initialData) {
-      setContent(initialData)
-      sessionStorage.removeItem('docbot_initial_content')
+    const fetchDocument = async () => {
+      if (!id) {
+        setIsInitializing(false)
+        return
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('documents')
+          .select('*')
+          .eq('id', id)
+          .single()
+
+        if (error) throw error
+
+        if (data) {
+          setTitle(data.title)
+          setContent(data.content_html || '')
+        }
+      } catch (error) {
+        console.error('Failed to fetch document:', error)
+      } finally {
+        setIsInitializing(false)
+      }
     }
-    setIsInitializing(false)
-  }, [])
+
+    fetchDocument()
+  }, [id, supabase])
 
   const handleSelection = (html: string, text: string) => {
     setSelectedHtml(html)
@@ -53,7 +74,7 @@ export default function EditorPage() {
         <header className="h-14 border-b flex items-center px-6 justify-between bg-white">
           <div className="flex items-center gap-4">
             <span className="text-sm font-medium text-gray-500 underline decoration-gray-300">내 문서</span>
-            <span className="text-sm font-bold text-gray-800">무제 문서</span>
+            <span className="text-sm font-bold text-gray-800">{title}</span>
           </div>
           <div className="flex items-center gap-2">
             <button className="px-3 py-1.5 text-xs font-medium border rounded-md hover:bg-gray-50">저장</button>
@@ -61,14 +82,16 @@ export default function EditorPage() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-hidden p-8 bg-gray-50/50">
-          <div className="max-w-4xl mx-auto h-full">
-            <TinyMceEditor 
-              ref={editorRef}
-              content={content} 
-              onChange={setContent} 
-              onSelection={handleSelection}
-            />
+        <div className="flex-1 overflow-hidden bg-[#f0f0f0]">
+          <div className="h-full w-full">
+            {!isInitializing && (
+              <DocEditor 
+                ref={editorRef}
+                content={content} 
+                onChange={setContent} 
+                onSelection={handleSelection}
+              />
+            )}
           </div>
         </div>
       </div>

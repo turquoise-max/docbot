@@ -37,6 +37,7 @@ export interface Database {
           id: string
           folder_id: string | null
           template_id: string | null
+          user_id: string | null
           title: string
           status: string | null
           current_version: number | null
@@ -48,6 +49,7 @@ export interface Database {
           id?: string
           folder_id?: string | null
           template_id?: string | null
+          user_id?: string | null
           title: string
           status?: string | null
           current_version?: number | null
@@ -59,6 +61,7 @@ export interface Database {
           id?: string
           folder_id?: string | null
           template_id?: string | null
+          user_id?: string | null
           title?: string
           status?: string | null
           current_version?: number | null
