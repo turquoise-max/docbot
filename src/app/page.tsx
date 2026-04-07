@@ -1,149 +1,144 @@
-'use client'
+'use client';
 
+import Link from 'next/link'
+import { FileText, Upload, Plus, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import { parseDocxToRetainedHtml } from '@/lib/utils/document'
 
-export default function EntryPage() {
+export default function HomePage() {
   const router = useRouter()
-  const [selectedOption, setSelectedOption] = useState<'A' | null>(null)
+  const supabase = createClient()
   
-  // Option A State
-  const [prompt, setPrompt] = useState('')
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [generatedToc, setGeneratedToc] = useState<any>(null)
+  const [isCreating, setIsCreating] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
 
-  const handleGenerateToc = async () => {
-    if (!prompt.trim()) return
-    setIsGenerating(true)
+  const handleCreateEmptyDocument = async () => {
+    setIsCreating(true)
     try {
-      const res = await fetch('/api/ai/generate-toc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
-      })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.toc) {
-          setGeneratedToc(data.toc)
-        } else {
-          console.error('Invalid response format:', data)
-          alert('목차 데이터를 불러오는 데 실패했습니다.')
-        }
-      } else {
-        console.error('API Error:', res.status, res.statusText)
-        alert('목차 생성에 실패했습니다. 잠시 후 다시 시도해주세요.')
+      const { data, error } = await supabase
+        .from('documents')
+        .insert({ title: '제목 없는 문서', content: '<h1>제목 없는 문서</h1><p><br/></p>' })
+        .select()
+        .single()
+
+      if (error || !data) {
+        console.error('Failed to create document:', error)
+        alert('문서 생성에 실패했습니다.')
+        setIsCreating(false)
+        return
       }
-    } catch (e) {
-      console.error('Fetch Error:', e)
-      alert('네트워크 오류가 발생했습니다. 연결을 확인해주세요.')
-    } finally {
-      setIsGenerating(false)
+
+      router.push(`/editor/${data.id}`)
+    } catch (error) {
+      console.error('Error creating document:', error)
+      alert('오류가 발생했습니다.')
+      setIsCreating(false)
     }
   }
 
-  const generateHtmlFromToc = (tocData: any[]): string => {
-    let html = '<h1>새 문서</h1>\n'
-    tocData.forEach((item) => {
-      if (item.level === 1) {
-        html += `<h2>${item.text}</h2>\n<p><br/></p>\n`
-      } else if (item.level === 2) {
-        html += `<h3>${item.text}</h3>\n<p><br/></p>\n`
-      } else {
-        html += `<h4>${item.text}</h4>\n<p><br/></p>\n`
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setIsUploading(true)
+    try {
+      const htmlContent = await parseDocxToRetainedHtml(file)
+      const title = file.name.replace(/\.docx$/i, '')
+
+      const { data, error } = await supabase
+        .from('documents')
+        .insert({ title, content: htmlContent })
+        .select()
+        .single()
+
+      if (error || !data) {
+        console.error('Failed to create document:', error)
+        alert('문서 생성에 실패했습니다.')
+        return
       }
-    })
-    return html
+
+      router.push(`/editor/${data.id}`)
+    } catch (error) {
+      console.error('Failed to parse docx:', error)
+      alert('파일 파싱에 실패했습니다.')
+    } finally {
+      setIsUploading(false)
+      // Reset input
+      event.target.value = ''
+    }
   }
 
-  const openEditorWithToc = () => {
-    if (!generatedToc) return
-    const htmlString = generateHtmlFromToc(generatedToc)
-    sessionStorage.setItem('docbot_initial_content', htmlString)
-    router.push('/editor')
-  }
-
-  const renderToc = (items: any[]) => {
-    return (
-      <ul className="space-y-2">
-        {items.map((item, idx) => (
-          <li key={idx} className={`text-sm ${item.level === 1 ? 'ml-0 font-bold' : item.level === 2 ? 'ml-4 font-semibold' : 'ml-8 text-gray-600'}`}>
-            {item.text}
-          </li>
-        ))}
-      </ul>
-    )
-  }
+  const officialTemplates = [
+    { id: '1', title: '사업계획서', desc: '표준 사업계획서 양식' },
+    { id: '2', title: '운영계획서', desc: '주간/월간 운영계획서 양식' },
+    { id: '3', title: '회의록', desc: '공식 회의록 양식' },
+    { id: '4', title: '제안서', desc: '프로젝트 제안서 양식' },
+  ]
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-8">
-      <div className="max-w-4xl w-full">
-        <h1 className="text-3xl font-bold text-center mb-8 text-gray-900">새 문서 시작하기</h1>
-        
-        {!selectedOption && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <button 
-              onClick={() => setSelectedOption('A')}
-              className="p-8 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow border border-gray-200 flex flex-col items-center text-center gap-4"
-            >
-              <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-2xl font-bold">A</div>
-              <div>
-                <h2 className="text-xl font-bold text-gray-900 mb-2">AI로 새 문서 시작 (키워드로 목차 구성)</h2>
-                <p className="text-gray-500 text-sm">키워드를 입력하면 AI가 목차를 추천해줍니다.</p>
-              </div>
-            </button>
-            <button 
-              onClick={() => router.push('/templates')}
-              className="p-8 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow border border-gray-200 flex flex-col items-center text-center gap-4"
-            >
-              <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-2xl font-bold">B</div>
-              <div>
-                <h2 className="text-xl font-bold text-gray-900 mb-2">템플릿으로 시작</h2>
-                <p className="text-gray-500 text-sm">표준 양식을 제공받아 문서를 작성합니다.</p>
-              </div>
-            </button>
-          </div>
-        )}
+    <div className="max-w-5xl mx-auto p-8">
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">새 문서 시작</h1>
+          <p className="text-gray-600">템플릿을 선택하거나 기존 DOCX 파일을 업로드하여 시작하세요.</p>
+        </div>
+        <button 
+          onClick={handleCreateEmptyDocument}
+          disabled={isCreating}
+          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-400"
+        >
+          {isCreating ? <Loader2 className="animate-spin" size={20} /> : <Plus size={20} />}
+          빈 문서로 시작
+        </button>
+      </div>
 
-        {selectedOption === 'A' && (
-          <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
-            <button onClick={() => { setSelectedOption(null); setGeneratedToc(null); setPrompt(''); }} className="text-sm text-gray-500 mb-4 hover:text-gray-700">← 뒤로 가기</button>
-            <h2 className="text-xl font-bold mb-4">어떤 문서를 작성하시나요?</h2>
-            <div className="flex gap-2">
-              <input 
-                type="text" 
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="예: 배달 앱 신규 런칭 사업계획서"
-                className="flex-1 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                onKeyDown={(e) => e.key === 'Enter' && handleGenerateToc()}
-                disabled={isGenerating}
-              />
-              <button 
-                onClick={handleGenerateToc}
-                disabled={isGenerating || !prompt.trim()}
-                className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
-              >
-                {isGenerating ? '생성 중...' : '목차 생성'}
-              </button>
+      <div className="mb-12">
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 flex flex-col items-center justify-center text-center border-dashed cursor-pointer hover:bg-blue-100 transition-colors relative">
+          {isUploading && (
+            <div className="absolute inset-0 bg-white/80 rounded-xl flex flex-col items-center justify-center z-10 backdrop-blur-sm">
+              <Loader2 className="animate-spin text-blue-600 mb-2" size={32} />
+              <p className="text-blue-800 font-medium">문서 구조를 분석하고 서식을 추출하는 중입니다...</p>
             </div>
-
-            {generatedToc && (
-              <div className="mt-8 border-t pt-8">
-                <h3 className="text-lg font-bold mb-4">추천 목차</h3>
-                <div className="bg-gray-50 p-6 rounded-lg border">
-                  {renderToc(generatedToc)}
-                </div>
-                <div className="mt-6 flex justify-end">
-                  <button onClick={openEditorWithToc} className="bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700">
-                    이 목차로 에디터 열기
-                  </button>
-                </div>
-              </div>
-            )}
+          )}
+          <div className="bg-white p-3 rounded-full shadow-sm mb-4">
+            <Upload className="text-blue-600" size={24} />
           </div>
-        )}
+          <h3 className="text-lg font-bold text-gray-900 mb-1">커스텀 DOCX 파일 업로드</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            사용하시던 워드 파일의 <span className="font-semibold text-blue-600">글꼴, 표, 여백 등 서식을 그대로 유지</span>하면서<br/>
+            AI의 도움을 받아 문서를 편집할 수 있습니다.
+          </p>
+          <input 
+            type="file" 
+            accept=".docx" 
+            className="hidden" 
+            id="docx-upload" 
+            onChange={handleFileUpload}
+            disabled={isUploading}
+          />
+          <label htmlFor="docx-upload" className={`bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+            파일 선택하기
+          </label>
+        </div>
+      </div>
 
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 mb-4">공식 템플릿</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {officialTemplates.map(template => (
+            <Link key={template.id} href={`/editor?templateId=${template.id}`} className="block group">
+              <div className="border rounded-xl p-6 h-full hover:border-blue-500 hover:shadow-md transition-all bg-white">
+                <div className="bg-gray-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+                  <FileText size={24} className="text-gray-500 group-hover:text-blue-600" />
+                </div>
+                <h3 className="font-bold text-gray-900 mb-1">{template.title}</h3>
+                <p className="text-sm text-gray-500">{template.desc}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   )

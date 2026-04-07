@@ -1,5 +1,6 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
-import { streamText } from 'ai'
+import { streamText, tool } from 'ai'
+import { z } from 'zod'
 
 export const maxDuration = 30
 
@@ -32,11 +33,10 @@ ${selectedText || ''}
 ${selectedHtml || ''}
 </selected_html>
 
-[에디터 제어 프로토콜]
-문서의 특정 부분을 직접 수정해야 할 경우,
-반드시 답변에 \`[UPDATE_EDITOR_SELECTION]: <html>수정된 내용</html>\` 형식을 사용하십시오.
-이때, 전달받은 <selected_html> 원본 HTML의 서식(인라인 스타일, 클래스, 태그 구조 등)을 완벽하게 유지하면서 내용만 수정하여 반환해야 합니다. 절대로 기존 태그 구조를 훼손하거나 누락해서는 안 됩니다.
-사용자는 이 HTML을 에디터의 현재 영역에 즉시 치환하여 반영할 것입니다.
+[도구 사용 지침]
+1. 유저가 문서의 목차나 뼈대 작성을 요청하면 반드시 \`generateToc\` 도구를 호출하세요.
+2. 유저가 에디터의 특정 텍스트 수정을 요청하면(특히 \`selectedHtml\`이 존재할 때), 기존 서식을 유지한 채 내용만 변경하여 \`updateEditor\` 도구를 호출하세요.
+3. 단순한 아이디에이션이나 질문이면 도구를 쓰지 않고 일반 텍스트로 친절하게 답변하세요.
 
 항상 전문적이고 정중한 한국어 실무 톤을 유지하십시오.
 `
@@ -45,6 +45,25 @@ ${selectedHtml || ''}
     model: google('gemini-3-flash-preview'),
     system: systemPrompt,
     messages,
+    tools: {
+      generateToc: tool({
+        description: '문서의 목차를 생성합니다. 사용자가 목차, 구조, 뼈대 등을 요구할 때 사용합니다.',
+        parameters: z.object({
+          title: z.string().describe('목차의 제목'),
+          items: z.array(z.object({
+            id: z.string().describe('고유 ID'),
+            level: z.number().describe('계층 레벨 (1, 2, 3...)'),
+            text: z.string().describe('목차 항목 텍스트')
+          })).describe('목차 항목 목록')
+        })
+      }),
+      updateEditor: tool({
+        description: '에디터의 선택된 영역을 새로운 내용으로 교체하기 위해 수정된 HTML을 제안합니다. 사용자가 특정 부분의 수정을 요구할 때 사용합니다.',
+        parameters: z.object({
+          modifiedHtml: z.string().describe('기존 서식을 유지하며 내용이 수정된 완전한 HTML 문자열')
+        })
+      })
+    }
   })
 
   return result.toTextStreamResponse()

@@ -1,11 +1,12 @@
 'use client'
-// @ts-nocheck
 
 import { useChat } from '@ai-sdk/react'
-import { useState, useEffect, useRef } from 'react'
+import { type Message } from 'ai'
+import { useEffect, useRef } from 'react'
 import { Send, User, Bot, Check, X } from 'lucide-react'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import TocBuilder from '../template/TocBuilder'
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -22,16 +23,13 @@ interface ChatPanelProps {
   editorRef?: RefObject<TinyMceEditorRef>
 }
 
-export default function ChatPanel({ selectedHtml, selectedText, editorContext, onApplyEdit }: ChatPanelProps) {
-  const [input, setInput] = useState('')
-  const [pendingUpdate, setPendingUpdate] = useState<string | null>(null)
+export default function ChatPanel({ selectedHtml, selectedText, editorContext, onApplyEdit, editorRef }: ChatPanelProps) {
   const activePreviewIdRef = useRef<string | null>(null)
   const isStreamingRef = useRef<boolean>(false)
   
   const hasInitializedAnalyizeRef = useRef(false)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { messages, status, append, stop } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, isLoading, append, stop } = useChat({
     api: '/api/chat',
     body: {
       selectedHtml,
@@ -41,21 +39,10 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
     onResponse: () => {
       isStreamingRef.current = true
     },
-    onFinish: ({ message }: { message: unknown }) => {
+    onFinish: () => {
       isStreamingRef.current = false
-      const msg = message as { content?: string; parts?: Array<{ type: string; text?: string; [key: string]: unknown }> };
-      const textContent = msg.content || (msg.parts 
-        ? msg.parts.filter((p) => p.type === 'text').map((p) => p.text).join('')
-        : '');
-      const selectionMatch = textContent.match(/\[UPDATE_EDITOR_SELECTION\]:\s*<html>([\s\S]*?)<\/html>/)
-      if (selectionMatch && selectionMatch[1]) {
-        setPendingUpdate(selectionMatch[1])
-      }
     },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any) as any
-
-  const isLoading = status === 'submitted' || status === 'streaming'
+  })
 
   useEffect(() => {
     // sessionStorage에서 'isDocxUpload' 플래그 확인 후 브리핑 요청
@@ -65,10 +52,12 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
         const parsed = JSON.parse(initialDataStr)
         if (parsed.type === 'html' && parsed.isDocxUpload) {
           hasInitializedAnalyizeRef.current = true
-          append({
-            role: 'user',
-            content: '업로드된 문서의 구조와 내용을 분석해서 요약해줘. "[문서 구조 분석 브리핑]" 이라는 제목으로 시작해.'
-          })
+          if (append && typeof append === 'function') {
+            append({
+              role: 'user',
+              content: '업로드된 문서의 구조와 내용을 분석해서 요약해줘. "[문서 구조 분석 브리핑]" 이라는 제목으로 시작해.'
+            })
+          }
           
           // 분석 요청 후 플래그 제거하여 새로고침 시 재요청 방지
           sessionStorage.setItem('initialEditorContent', JSON.stringify({ ...parsed, isDocxUpload: false }))
@@ -78,13 +67,6 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
       }
     }
   }, [append])
-
-  const onSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!input.trim()) return
-    append({ role: 'user', content: input })
-    setInput('')
-  }
 
   // Handle aborting from the editor's reject button
   useEffect(() => {
@@ -105,17 +87,6 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const handleAccept = () => {
-    if (pendingUpdate) {
-      onApplyEdit(pendingUpdate)
-      setPendingUpdate(null)
-    }
-  }
-
-  const handleDecline = () => {
-    setPendingUpdate(null)
-  }
-
   return (
     <div className="flex flex-col h-full border-l bg-gray-50 w-[400px]">
       <div className="p-4 border-b bg-white font-bold text-gray-700">
@@ -128,9 +99,8 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-        {messages.map((m: any) => (
-          <div key={m.id} className={cn("flex", m.role === 'user' ? "justify-end" : "justify-start")}>
+        {messages.map((m: Message) => (
+          <div key={m.id} className={cn("flex flex-col gap-2", m.role === 'user' ? "items-end" : "items-start")}>
             <div className={cn(
               "max-w-[85%] p-3 rounded-lg text-sm shadow-sm",
               m.role === 'user' ? "bg-blue-600 text-white" : "bg-white text-gray-800 border"
@@ -140,46 +110,75 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
                 <span className="font-bold">{m.role === 'user' ? '나' : '문서봇'}</span>
               </div>
               <div className="whitespace-pre-wrap leading-relaxed">
-              {/* UPDATE_EDITOR 태그 제외하고 텍스트만 표시 */}
-              {(() => {
-                const msg = m as { content?: string; parts?: Array<{ type: string; text?: string; [key: string]: unknown }> };
-                const textContent = msg.content || (msg.parts 
-                  ? msg.parts.filter((p) => p.type === 'text').map((p) => p.text).join('') 
-                  : '');
-                return textContent.split(/\[UPDATE_EDITOR(_SELECTION)?\]/)[0];
-              })()}
+                {m.content}
               </div>
             </div>
+
+            {m.toolInvocations?.map(toolInvocation => {
+              const { toolCallId, toolName, args } = toolInvocation;
+
+              if (toolName === 'generateToc') {
+                return (
+                  <div key={toolCallId} className="max-w-[85%] w-full">
+                    <TocBuilder 
+                      title={args.title} 
+                      items={args.items} 
+                      onApply={() => {
+                        const html = `<h2>${args.title}</h2>` + args.items.map((item: { level: number; text: string }) => `<h${item.level + 1}>${item.text}</h${item.level + 1}>`).join('');
+                        if (editorRef?.current) {
+                          // @ts-ignore
+                          editorRef.current.setHtml(html);
+                        }
+                      }} 
+                    />
+                  </div>
+                );
+              }
+
+              if (toolName === 'updateEditor') {
+                return (
+                  <div key={toolCallId} className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
+                    <p className="text-xs font-bold text-blue-700 mb-2">AI가 수정한 내용을 적용할까요?</p>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => {
+                          if (editorRef?.current) {
+                            // @ts-ignore
+                            editorRef.current.replaceSelectionHtml(args.modifiedHtml);
+                          } else {
+                            onApplyEdit(args.modifiedHtml);
+                          }
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1 bg-blue-600 text-white py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
+                      >
+                        <Check size={16} /> 수락
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          const target = e.currentTarget;
+                          target.parentElement?.parentElement?.remove();
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1 bg-white border border-gray-200 text-gray-600 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
+                      >
+                        <X size={16} /> 거절
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              return null;
+            })}
           </div>
         ))}
         <div ref={messagesEndRef} />
       </div>
 
-      {pendingUpdate && (
-        <div className="p-4 bg-blue-50 border-t border-blue-100 animate-in slide-in-from-bottom-2">
-          <p className="text-xs font-bold text-blue-700 mb-2">AI가 수정한 내용을 적용할까요?</p>
-          <div className="flex gap-2">
-            <button 
-              onClick={handleAccept}
-              className="flex-1 flex items-center justify-center gap-1 bg-blue-600 text-white py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
-            >
-              <Check size={16} /> 수락
-            </button>
-            <button 
-              onClick={handleDecline}
-              className="flex-1 flex items-center justify-center gap-1 bg-white border border-gray-200 text-gray-600 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
-            >
-              <X size={16} /> 거절
-            </button>
-          </div>
-        </div>
-      )}
-
-      <form onSubmit={onSubmit} className="p-4 bg-white border-t">
+      <form onSubmit={handleSubmit} className="p-4 bg-white border-t">
         <div className="relative">
           <input
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             placeholder={selectedText ? "선택 영역을 어떻게 수정할까요?" : "무엇을 도와드릴까요?"}
             className="w-full pl-3 pr-10 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
           />
