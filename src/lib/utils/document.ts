@@ -14,6 +14,8 @@
  *    - 외부 API: ConvertAPI 등
  */
 
+import * as mammoth from 'mammoth';
+
 /**
  * DOCX 파일을 서식이 보존된 HTML로 변환합니다.
  * 
@@ -21,27 +23,31 @@
  * @returns 변환된 HTML 문자열 (인라인 스타일 포함)
  */
 export async function parseDocxToRetainedHtml(file: File): Promise<string> {
-  // TODO: 실제 서식 보존 파싱 로직 구현
-  // 예시: 외부 API를 사용하거나, 서버리스 함수로 LibreOffice headless를 호출하는 로직
   console.log(`Parsing ${file.name} to retained HTML...`);
   
-  // Skeleton 반환
-  return `
-    <div style="font-family: 'Malgun Gothic', sans-serif; font-size: 11pt; line-height: 1.5; padding: 20px;">
-      <h1 style="text-align: center; font-size: 16pt; font-weight: bold;">임시 파싱된 제목</h1>
-      <p style="margin-top: 10px;">이 내용은 <strong>${file.name}</strong>에서 파싱된 임시 HTML입니다.</p>
-      <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-        <tr>
-          <th style="border: 1px solid #000; padding: 8px; background-color: #f2f2f2;">항목</th>
-          <th style="border: 1px solid #000; padding: 8px; background-color: #f2f2f2;">내용</th>
-        </tr>
-        <tr>
-          <td style="border: 1px solid #000; padding: 8px;">1</td>
-          <td style="border: 1px solid #000; padding: 8px;">임시 데이터</td>
-        </tr>
-      </table>
-    </div>
-  `;
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const options = {
+      styleMap: [
+        "p[style-name='Title'] => h1.title",
+        "p[style-name='Subtitle'] => h2.subtitle",
+        "p[style-name='Heading 1'] => h1",
+        "p[style-name='Heading 2'] => h2",
+        "p[style-name='Heading 3'] => h3",
+        "table => table",
+        "b => strong",
+        "i => em",
+        "u => u",
+        "strike => del"
+      ]
+    };
+    
+    const result = await mammoth.convertToHtml({ arrayBuffer }, options);
+    return result.value;
+  } catch (error) {
+    console.error('Error parsing DOCX:', error);
+    throw new Error('Failed to parse DOCX file');
+  }
 }
 
 /**

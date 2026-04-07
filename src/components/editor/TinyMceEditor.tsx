@@ -18,6 +18,7 @@ export interface TinyMceEditorProps {
 
 const TinyMceEditor = forwardRef<TinyMceEditorRef, TinyMceEditorProps>(
   ({ content, onChange, onSelection }, ref) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const editorRef = useRef<any>(null)
 
     useImperativeHandle(ref, () => ({
@@ -49,6 +50,7 @@ const TinyMceEditor = forwardRef<TinyMceEditorRef, TinyMceEditorProps>(
       <div className="w-full h-full min-h-[842px] max-w-[595px] sm:max-w-[794px] mx-auto bg-white shadow-lg border border-gray-200">
         <Editor
           apiKey={process.env.NEXT_PUBLIC_TINYMCE_API_KEY || ''}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onInit={(_evt: any, editor: any) => {
             editorRef.current = editor
           }}

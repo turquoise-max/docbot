@@ -21,6 +21,10 @@ export async function POST(req: Request) {
 [작업 모드]
 1. 드래그 텍스트/HTML 없음: 일반 아이디에이션, 초안 생성, 문서 구조 제안.
 2. 드래그 영역 있음: 다음의 HTML 원본 부분에 대한 수정, 요약, 확장 요청 처리.
+
+[전체 문서 내용]
+${editorContext || '없음'}
+
 <selected_text>
 ${selectedText || ''}
 </selected_text>

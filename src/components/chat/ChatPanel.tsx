@@ -22,12 +22,16 @@ interface ChatPanelProps {
   editorRef?: RefObject<TinyMceEditorRef>
 }
 
-export default function ChatPanel({ selectedHtml, selectedText, editorContext, onApplyEdit, editorRef }: ChatPanelProps) {
+export default function ChatPanel({ selectedHtml, selectedText, editorContext, onApplyEdit }: ChatPanelProps) {
+  const [input, setInput] = useState('')
   const [pendingUpdate, setPendingUpdate] = useState<string | null>(null)
   const activePreviewIdRef = useRef<string | null>(null)
   const isStreamingRef = useRef<boolean>(false)
   
-  const { messages, input, handleInputChange, handleSubmit, isLoading, stop } = useChat({
+  const hasInitializedAnalyizeRef = useRef(false)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { messages, status, append, stop } = useChat({
     api: '/api/chat',
     body: {
       selectedHtml,
@@ -37,18 +41,54 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
     onResponse: () => {
       isStreamingRef.current = true
     },
-    onFinish: (message) => {
+    onFinish: ({ message }: { message: unknown }) => {
       isStreamingRef.current = false
-      const selectionMatch = message.content.match(/\[UPDATE_EDITOR_SELECTION\]:\s*<html>([\s\S]*?)<\/html>/)
+      const msg = message as { content?: string; parts?: Array<{ type: string; text?: string; [key: string]: unknown }> };
+      const textContent = msg.content || (msg.parts 
+        ? msg.parts.filter((p) => p.type === 'text').map((p) => p.text).join('')
+        : '');
+      const selectionMatch = textContent.match(/\[UPDATE_EDITOR_SELECTION\]:\s*<html>([\s\S]*?)<\/html>/)
       if (selectionMatch && selectionMatch[1]) {
         setPendingUpdate(selectionMatch[1])
       }
     },
-  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any) as any
+
+  const isLoading = status === 'submitted' || status === 'streaming'
+
+  useEffect(() => {
+    // sessionStorage에서 'isDocxUpload' 플래그 확인 후 브리핑 요청
+    const initialDataStr = sessionStorage.getItem('initialEditorContent')
+    if (initialDataStr && !hasInitializedAnalyizeRef.current) {
+      try {
+        const parsed = JSON.parse(initialDataStr)
+        if (parsed.type === 'html' && parsed.isDocxUpload) {
+          hasInitializedAnalyizeRef.current = true
+          append({
+            role: 'user',
+            content: '업로드된 문서의 구조와 내용을 분석해서 요약해줘. "[문서 구조 분석 브리핑]" 이라는 제목으로 시작해.'
+          })
+          
+          // 분석 요청 후 플래그 제거하여 새로고침 시 재요청 방지
+          sessionStorage.setItem('initialEditorContent', JSON.stringify({ ...parsed, isDocxUpload: false }))
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, [append])
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!input.trim()) return
+    append({ role: 'user', content: input })
+    setInput('')
+  }
 
   // Handle aborting from the editor's reject button
   useEffect(() => {
-    const handleReject = (e: CustomEvent) => {
+    const handleReject = () => {
       if (isStreamingRef.current) {
         stop()
         isStreamingRef.current = false
@@ -88,7 +128,8 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((m) => (
+        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+        {messages.map((m: any) => (
           <div key={m.id} className={cn("flex", m.role === 'user' ? "justify-end" : "justify-start")}>
             <div className={cn(
               "max-w-[85%] p-3 rounded-lg text-sm shadow-sm",
@@ -100,7 +141,13 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
               </div>
               <div className="whitespace-pre-wrap leading-relaxed">
               {/* UPDATE_EDITOR 태그 제외하고 텍스트만 표시 */}
-              {m.content.split(/\[UPDATE_EDITOR(_SELECTION)?\]/)[0]}
+              {(() => {
+                const msg = m as { content?: string; parts?: Array<{ type: string; text?: string; [key: string]: unknown }> };
+                const textContent = msg.content || (msg.parts 
+                  ? msg.parts.filter((p) => p.type === 'text').map((p) => p.text).join('') 
+                  : '');
+                return textContent.split(/\[UPDATE_EDITOR(_SELECTION)?\]/)[0];
+              })()}
               </div>
             </div>
           </div>
@@ -128,11 +175,11 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="p-4 bg-white border-t">
+      <form onSubmit={onSubmit} className="p-4 bg-white border-t">
         <div className="relative">
           <input
             value={input}
-            onChange={handleInputChange}
+            onChange={(e) => setInput(e.target.value)}
             placeholder={selectedText ? "선택 영역을 어떻게 수정할까요?" : "무엇을 도와드릴까요?"}
             className="w-full pl-3 pr-10 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
           />
