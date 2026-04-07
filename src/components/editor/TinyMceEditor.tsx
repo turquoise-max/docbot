@@ -47,7 +47,7 @@ const TinyMceEditor = forwardRef<TinyMceEditorRef, TinyMceEditorProps>(
     }))
 
     return (
-      <div className="w-full h-full min-h-[842px] max-w-[595px] sm:max-w-[794px] mx-auto bg-white shadow-lg border border-gray-200">
+      <div className="w-full h-full bg-gray-100 overflow-y-auto">
         <Editor
           apiKey={process.env.NEXT_PUBLIC_TINYMCE_API_KEY || ''}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,13 +71,16 @@ const TinyMceEditor = forwardRef<TinyMceEditorRef, TinyMceEditorProps>(
             plugins: [
               'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview',
               'anchor', 'searchreplace', 'visualblocks', 'code', 'fullscreen',
-              'insertdatetime', 'media', 'table', 'code', 'help', 'wordcount'
+              'insertdatetime', 'media', 'table', 'code', 'help', 'wordcount', 'pagebreak'
             ],
             toolbar: 'undo redo | blocks | ' +
               'bold italic forecolor | alignleft aligncenter ' +
               'alignright alignjustify | bullist numlist outdent indent | ' +
-              'removeformat | help',
-            content_style: 'body { font-family:Helvetica,Arial,sans-serif; font-size:14px; margin: 1rem; }',
+              'removeformat | pagebreak | help',
+            content_style: 'body { font-family:Helvetica,Arial,sans-serif; font-size:14px; width: 210mm; min-height: 297mm; padding: 20mm; margin: 2rem auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); background-color: #ffffff; box-sizing: border-box; } .mce-pagebreak { cursor: default; display: block; border: 0; width: 100%; height: 5px; border-top: 2px dashed #ccc; margin-top: 15px; page-break-before: always; } html { background-color: transparent; }',
+            language: 'ko_KR',
+            // 다운로드 받은 한국어 언어팩을 public/langs/ko_KR.js 에 위치시키고 주석을 해제하세요.
+            language_url: '/langs/ko_KR.js',
             resize: false,
             statusbar: false,
           }}

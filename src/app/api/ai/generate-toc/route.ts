@@ -8,17 +8,10 @@ const google = createGoogleGenerativeAI({
 });
 
 const tocSchema = z.object({
+  title: z.string().describe('문서의 제목'),
   toc: z.array(z.object({
-    title: z.string().describe('목차 항목의 제목 (예: 1. 서론)'),
-    description: z.string().optional().describe('이 항목에 들어갈 내용에 대한 간략한 설명'),
-    children: z.array(z.object({
-      title: z.string(),
-      description: z.string().optional(),
-      children: z.array(z.object({
-        title: z.string(),
-        description: z.string().optional(),
-      })).optional()
-    })).optional()
+    level: z.number().describe('목차 레벨 (1, 2, 3)'),
+    text: z.string().describe('목차 텍스트'),
   })).describe('문서의 전체 목차 구조')
 });
 

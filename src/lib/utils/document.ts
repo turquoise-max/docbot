@@ -29,12 +29,12 @@ export async function parseDocxToRetainedHtml(file: File): Promise<string> {
     const arrayBuffer = await file.arrayBuffer();
     const options = {
       styleMap: [
-        "p[style-name='Title'] => h1.title",
-        "p[style-name='Subtitle'] => h2.subtitle",
-        "p[style-name='Heading 1'] => h1",
-        "p[style-name='Heading 2'] => h2",
-        "p[style-name='Heading 3'] => h3",
-        "table => table",
+        "p[style-name='Title'] => h1[style='font-size: 2em; font-weight: bold;']",
+        "p[style-name='Subtitle'] => h2[style='font-size: 1.5em; color: #666;']",
+        "p[style-name='Heading 1'] => h1[style='font-size: 2em; font-weight: bold; margin-bottom: 0.5em;']",
+        "p[style-name='Heading 2'] => h2[style='font-size: 1.5em; font-weight: bold; margin-bottom: 0.5em;']",
+        "p[style-name='Heading 3'] => h3[style='font-size: 1.17em; font-weight: bold; margin-bottom: 0.5em;']",
+        "table => table[style='border-collapse: collapse; width: 100%; border: 1px solid black;']",
         "b => strong",
         "i => em",
         "u => u",

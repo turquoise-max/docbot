@@ -12,32 +12,6 @@ const TinyMceEditor = dynamic(
 
 import { useEffect } from 'react'
 
-const generateHtmlFromToc = (toc: any[]): string => {
-  let html = ''
-  toc.forEach(item => {
-    html += `<h1>${item.title}</h1>\n`
-    if (item.description) html += `<p><em>${item.description}</em></p>\n`
-    if (item.children) {
-      item.children.forEach((child: any) => {
-        html += `<h2>${child.title}</h2>\n`
-        if (child.description) html += `<p><em>${child.description}</em></p>\n`
-        if (child.children) {
-          child.children.forEach((subChild: any) => {
-            html += `<h3>${subChild.title}</h3>\n`
-            if (subChild.description) html += `<p><em>${subChild.description}</em></p>\n`
-            html += `<p>내용을 입력하세요...</p>\n`
-          })
-        } else {
-          html += `<p>내용을 입력하세요...</p>\n`
-        }
-      })
-    } else {
-      html += `<p>내용을 입력하세요...</p>\n`
-    }
-  })
-  return html
-}
-
 export default function EditorPage() {
   const editorRef = useRef<TinyMceEditorRef>(null)
   const [content, setContent] = useState('<h1>새 문서</h1><p>여기에 내용을 입력하거나 AI에게 초안 작성을 부탁해보세요.</p>')
@@ -48,17 +22,8 @@ export default function EditorPage() {
   useEffect(() => {
     const initialData = sessionStorage.getItem('docbot_initial_content')
     if (initialData) {
-      try {
-        const parsed = JSON.parse(initialData)
-        if (parsed.type === 'toc') {
-          setContent(generateHtmlFromToc(parsed.data))
-        } else if (parsed.type === 'html') {
-          setContent(parsed.data)
-        }
-        sessionStorage.removeItem('docbot_initial_content')
-      } catch (e) {
-        console.error('Failed to parse initial content', e)
-      }
+      setContent(initialData)
+      sessionStorage.removeItem('docbot_initial_content')
     }
     setIsInitializing(false)
   }, [])
