@@ -128,24 +128,55 @@ export async function parseDocx(buffer: ArrayBuffer): Promise<ParseResult> {
       }
   }
 
+  // 첫 페이지를 다르게 지정했는데 default가 없는 경우, 사용자 편의를 위해 first를 default로 복사
+  if (headers.first && !headers.default) {
+      headers.default = headers.first;
+  }
+  if (footers.first && !footers.default) {
+      footers.default = footers.first;
+  }
+
   // 5. Build Main HTML
   let html = '';
   const body = doc.querySelector('body') || doc.getElementsByTagName('w:body')[0];
   
   if (body) {
       for (const node of Array.from(body.children)) {
-          // sectPr 및 관련 메타 데이터가 본문에 포함되지 않도록 강력 차단
+          // sectPr 및 머릿글/바닥글 관련 노드 차단
           if (node.localName === 'sectPr' || node.tagName.includes('sectPr')) continue;
+          
+          // sdt 중에서도 머릿글/바닥글과 관련된 것은 제외
+          if (node.tagName === 'w:sdt') {
+              const sdtPr = node.querySelector('sdtPr');
+              let isHeaderFooterSdt = false;
+              if (sdtPr) {
+                  const tag = sdtPr.querySelector('tag');
+                  const val = tag?.getAttribute('w:val');
+                  if (val && (val.toLowerCase().includes('header') || val.toLowerCase().includes('footer'))) {
+                      isHeaderFooterSdt = true;
+                  }
+                  const docPartObj = sdtPr.querySelector('docPartObj');
+                  if (docPartObj) {
+                      const docPartGallery = docPartObj.querySelector('docPartGallery');
+                      const galleryVal = docPartGallery?.getAttribute('w:val');
+                      if (galleryVal && (galleryVal.toLowerCase().includes('header') || galleryVal.toLowerCase().includes('footer') || galleryVal.toLowerCase().includes('page'))) {
+                          isHeaderFooterSdt = true;
+                      }
+                  }
+              }
+              if (isHeaderFooterSdt) continue;
+              
+              const sdtContent = node.querySelector('sdtContent');
+              if (sdtContent) {
+                   html += parseContainer(sdtContent, globalStyles, images);
+              }
+              continue;
+          }
 
           if (node.tagName === 'w:p') {
               html += parseParagraph(node, globalStyles, images);
           } else if (node.tagName === 'w:tbl') {
               html += parseTable(node, globalStyles, images);
-          } else if (node.tagName === 'w:sdt') {
-              const sdtContent = node.querySelector('sdtContent');
-              if (sdtContent) {
-                   html += parseContainer(sdtContent, globalStyles, images);
-              }
           }
       }
   }
@@ -184,16 +215,55 @@ function parseParagraph(p: Element, globalStyles: DocxStyles, images: Record<str
     const pPr = p.querySelector('pPr');
     const pStyleId = pPr?.querySelector('pStyle')?.getAttribute('w:val');
     const styles = mapParagraphProperties(pPr, globalStyles);
-    
+
     let innerHtml = '';
+    let inPageField = false;
+    let skipText = false;
+
     for (const child of Array.from(p.children)) {
         if (child.tagName === 'w:r') {
-             innerHtml += parseRun(child, pStyleId || undefined, globalStyles, images);
+             // instrText가 fldChar보다 뒤에 있을 수도 있고, 같은 run에 있을 수도 있으므로 먼저 검사
+             const instrTexts = child.querySelectorAll('instrText');
+             let hasPageInstr = false;
+             for (const instr of Array.from(instrTexts)) {
+                 if (instr.textContent?.includes('PAGE')) {
+                     hasPageInstr = true;
+                 }
+             }
+
+             if (hasPageInstr) {
+                 inPageField = true;
+                 innerHtml += `<span style="${mapRunProperties(child.querySelector('rPr'), pStyleId || undefined, globalStyles)}">{{PAGE_NUMBER}}</span>`;
+             }
+
+             const fldChars = child.querySelectorAll('fldChar');
+             for (const fldChar of Array.from(fldChars)) {
+                 const type = fldChar.getAttribute('w:fldCharType');
+                 if (type === 'begin') {
+                     // field start
+                 } else if (type === 'separate' && inPageField) {
+                     skipText = true;
+                 } else if (type === 'end' && inPageField) {
+                     inPageField = false;
+                     skipText = false;
+                 }
+             }
+
+             innerHtml += parseRun(child, pStyleId || undefined, globalStyles, images, skipText);
         } else if (child.tagName === 'w:hyperlink') {
             // Simplified hyperlink parsing
             for (const r of Array.from(child.querySelectorAll('r'))) {
-                innerHtml += parseRun(r, pStyleId || undefined, globalStyles, images);
+                innerHtml += parseRun(r, pStyleId || undefined, globalStyles, images, skipText);
             }
+        } else if (child.tagName === 'w:fldSimple') {
+             const instr = child.getAttribute('w:instr') || '';
+             if (instr.includes('PAGE')) {
+                 innerHtml += `<span style="${mapRunProperties(child.querySelector('rPr'), pStyleId || undefined, globalStyles)}">{{PAGE_NUMBER}}</span>`;
+             } else {
+                 for (const r of Array.from(child.querySelectorAll('r'))) {
+                     innerHtml += parseRun(r, pStyleId || undefined, globalStyles, images, skipText);
+                 }
+             }
         }
     }
 
@@ -254,7 +324,7 @@ function parseParagraph(p: Element, globalStyles: DocxStyles, images: Record<str
     return `<${tag} style="${extraStyles}">${innerHtml || '<br/>'}</${tag}>`;
 }
 
-function parseRun(r: Element, pStyleId?: string, globalStyles?: DocxStyles, images?: Record<string, string>): string {
+function parseRun(r: Element, pStyleId?: string, globalStyles?: DocxStyles, images?: Record<string, string>, skipText: boolean = false): string {
     const rPr = r.querySelector('rPr');
     const styles = mapRunProperties(rPr, pStyleId, globalStyles);
     
@@ -268,22 +338,8 @@ function parseRun(r: Element, pStyleId?: string, globalStyles?: DocxStyles, imag
     
     for (const node of Array.from(r.children)) {
         if (node.tagName === 'w:t') {
+            if (skipText) continue;
             const text = node.textContent || '';
-            // Only output text, do not output literal 'Body' if it's an artifact
-            // Sometimes parser injects 'Body' when parsing certain structures.
-            // A more robust check is to just escape and append, but if it exactly matches "Body",
-            // and it seems like an artifact (e.g. at the very start of the document), we might need to ignore it.
-            // However, it's safer to just let it pass unless it's a known artifact.
-            // The bug report says "Body" text is injected at the top. This happens if `doc.querySelector('body')` in DOMParser 
-            // picks up the `<w:body>` tag and its implicit `textContent` or similar. 
-            // But here we are inside `<w:t>`. Let's just escape and append, the real issue might be somewhere else.
-            // Wait, look at `parseDocx` step 5: `const body = doc.querySelector('body') || doc.getElementsByTagName('w:body')[0];`
-            // If `DOMParser` parses `<w:body>` as `<body>`, its children might be messed up.
-            // Actually, in `parseRun`, the condition `if (text.trim() === 'Body' && !r.closest('w\\:body'))` was intended to catch this,
-            // but `r.closest('w\\:body')` might not work if the tag is just `<body>`.
-            // Let's refine the ignore logic for "Body". If it's literally just "Body" and has no other meaningful context, we might skip it, 
-            // but a user might legitimately type "Body".
-            // The issue is likely that `parseContainer` is picking up text nodes outside of `<w:t>`. No, `parseContainer` only looks at elements (`container.children`).
             if (text.trim() === 'Body') {
                 // Ignore "Body" artifact
             } else {

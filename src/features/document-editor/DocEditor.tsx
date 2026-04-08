@@ -133,8 +133,9 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
 
       const topMargin = margins ? mmToPx(margins.top) : mmToPx('25.4mm');
       const bottomMargin = margins ? mmToPx(margins.bottom) : mmToPx('25.4mm');
-      const PAGE_HEIGHT = 1122.5; // 297mm
+      const PAGE_HEIGHT = 1122.52; // 297mm * 3.7795275591
       const GAP = 32; // gap-8 = 32px
+      const EDITOR_TOP_PADDING = 32; // py-8 = 32px
 
       const isFocused = document.activeElement === editor;
       const savedSel = isFocused ? saveSelection(editor) : null;
@@ -153,46 +154,52 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
         }
       });
 
-      // Calculate absolute positions using getBoundingClientRect to ensure accuracy relative to the editor
+      // Recalculate editor rect after reset
       const editorRect = editor.getBoundingClientRect();
-      
+
+      // 에디터의 상단 패딩(32px)을 절대 오프셋 계산에 반영
+      let currentTopOffset = EDITOR_TOP_PADDING; // 누적 오차를 방지하기 위해 각 요소의 상대적 높이를 바탕으로 계산
+
       for (let i = 0; i < children.length; i++) {
         const child = children[i];
+        
+        // 브라우저 렌더링 값 가져오기
         const rect = child.getBoundingClientRect();
         
-        // Calculate position relative to the top of the editor content area
-        const childTop = rect.top - editorRect.top; 
-        const childHeight = rect.height;
-        // absoluteTop represents the position on the virtual paper including top margin
-        const absoluteTop = childTop + topMargin;
-        const absoluteBottom = absoluteTop + childHeight;
-
-        // Determine which page this element starts on
-        const pageIndex = Math.floor(absoluteTop / (PAGE_HEIGHT + GAP));
+        // 실제 요소의 높이 (마진 포함)
+        const computedStyle = window.getComputedStyle(child);
+        const marginTop = parseFloat(computedStyle.marginTop) || 0;
+        const marginBottom = parseFloat(computedStyle.marginBottom) || 0;
+        const childTotalHeight = rect.height + marginTop + marginBottom;
         
+        // 현재 요소의 (가상 페이퍼 상) 절대 상단 위치 (마진 미포함, 실제 내용 시작점)
+        // currentTopOffset은 이전 요소들까지의 누적 높이
+        const absoluteTop = currentTopOffset + topMargin + marginTop;
+        const absoluteBottom = absoluteTop + rect.height;
+
+        const pageIndex = Math.floor(absoluteTop / (PAGE_HEIGHT + GAP));
         const pageStart = pageIndex * (PAGE_HEIGHT + GAP);
         const pageContentBottom = pageStart + PAGE_HEIGHT - bottomMargin;
-        
-        // If element overlaps bottom margin (침범 방지)
-        if (absoluteBottom > pageContentBottom && childHeight < (PAGE_HEIGHT - topMargin - bottomMargin)) {
-          // Push down to the next page's content start area
+
+        if (absoluteBottom > pageContentBottom && rect.height < (PAGE_HEIGHT - topMargin - bottomMargin)) {
+          // Push down to next page
           const nextPageContentStart = (pageIndex + 1) * (PAGE_HEIGHT + GAP) + topMargin;
-          
-          const pushAmount = Math.max(0, nextPageContentStart - absoluteTop);
-          
+          const pushAmount = nextPageContentStart - absoluteTop;
+
           if (pushAmount > 0) {
-             const currentMarginTop = window.getComputedStyle(child).marginTop;
              child.dataset.origMarginTop = child.style.marginTop || '';
              child.dataset.pushDown = 'true';
-             
-             const currentMarginTopPx = parseFloat(currentMarginTop) || 0;
-             child.style.marginTop = `${currentMarginTopPx + pushAmount}px`;
+
+             child.style.marginTop = `${marginTop + pushAmount}px`;
              layoutChanged = true;
              
-             // After changing layout, we must recount editorRect as things may shift
-             // Actually, getBoundingClientRect on subsequent elements will reflect the push naturally on next iteration
+             // 다음 요소를 위한 오프셋 갱신 (pushAmount 만큼 추가됨)
+             currentTopOffset += childTotalHeight + pushAmount;
+             continue; // push 후에는 이 요소의 계산이 끝남
           }
         }
+        
+        currentTopOffset += childTotalHeight;
       }
 
       if (savedSel && layoutChanged) {
@@ -308,11 +315,11 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
                 margin: 0,
                 padding: 0,
                 minHeight: '100%',
-                // Added baseline typography matching word defaults more closely
-                fontFamily: '"Malgun Gothic", "맑은 고딕", sans-serif',
-                fontSize: '11pt',
-                lineHeight: '1.6', // Improved readability matching Google Docs
-                color: '#000000'
+                 // Added baseline typography matching word defaults more closely
+                 fontFamily: '"Malgun Gothic", "맑은 고딕", sans-serif',
+                 fontSize: '11pt',
+                 lineHeight: 'normal',
+                 color: '#000000'
               }}
             />
           </PageLayout>

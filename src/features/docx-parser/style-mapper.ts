@@ -118,7 +118,7 @@ export function mapRunProperties(rPr: Element | null, styleContext?: string, glo
 }
 
 export function mapParagraphProperties(pPr: Element | null, globalStyles?: DocxStyles): string {
-  if (!pPr && !globalStyles) return '';
+  if (!pPr && !globalStyles) return 'line-height: 1.15;';
   const styles: string[] = [];
 
   const pStyleId = pPr?.querySelector('pStyle')?.getAttribute('w:val');
@@ -142,6 +142,31 @@ export function mapParagraphProperties(pPr: Element | null, globalStyles?: DocxS
 
   // Direct Paragraph Properties override inherited
   if (pPr) {
+    // Borders
+    const pBdr = pPr.querySelector('pBdr');
+    if (pBdr) {
+        ['top', 'left', 'bottom', 'right'].forEach(side => {
+            const border = pBdr.querySelector(side);
+            if (border) {
+                const val = border.getAttribute('w:val');
+                if (val && val !== 'none' && val !== 'nil') {
+                    const sz = border.getAttribute('w:sz');
+                    const color = border.getAttribute('w:color');
+                    
+                    let borderStyle = 'solid';
+                    if (val === 'dashed') borderStyle = 'dashed';
+                    else if (val === 'dotted') borderStyle = 'dotted';
+                    else if (val === 'double') borderStyle = 'double';
+                    
+                    const width = sz ? `${Math.max(1, parseInt(sz, 10) / 8)}pt` : '1px';
+                    const borderColor = color && color !== 'auto' ? `#${color}` : '#000';
+                    
+                    styles.push(`border-${side}: ${width} ${borderStyle} ${borderColor};`);
+                }
+            }
+        });
+    }
+
     // Alignment
     const jc = pPr.querySelector('jc')?.getAttribute('w:val');
     if (jc) {
@@ -163,12 +188,19 @@ export function mapParagraphProperties(pPr: Element | null, globalStyles?: DocxS
       const line = spacing.getAttribute('w:line');
       const lineRule = spacing.getAttribute('w:lineRule');
       if (line) {
-          if (lineRule === 'auto') {
-              styles.push(`line-height: ${(parseUnit(line) / 240).toFixed(2)};`);
+          const lineValue = parseUnit(line);
+          if (lineRule === 'auto' || !lineRule) {
+              // DOCX unit: 240 = 1 line
+              styles.push(`line-height: ${(lineValue / 240).toFixed(2)};`);
           } else {
-              styles.push(`line-height: ${twipsToPt(parseUnit(line))}pt;`);
+              styles.push(`line-height: ${twipsToPt(lineValue)}pt;`);
           }
+      } else {
+          // If no line spacing is specified, use DOCX standard default
+          styles.push(`line-height: 1.15;`);
       }
+    } else {
+        styles.push(`line-height: 1.15;`);
     }
 
     // Indentation

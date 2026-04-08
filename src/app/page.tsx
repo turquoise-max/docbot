@@ -55,7 +55,8 @@ export default function HomePage() {
             header_html: parsedData.headers ? JSON.stringify(parsedData.headers) : null,
             footer_html: parsedData.footers ? JSON.stringify(parsedData.footers) : null,
             margins_json: parsedData.margins as any,
-            user_id: null
+            user_id: null,
+            has_title_pg: parsedData.hasTitlePg
         })
         .select()
         .single()

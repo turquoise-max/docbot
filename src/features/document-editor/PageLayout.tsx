@@ -23,8 +23,8 @@ export function PageLayout({ children, margins, headerHtml, footerHtml, hasTitle
         // A4 height is roughly 1122px (297mm at 96dpi).
         // To be safe and responsive to actual rendering, we use mm directly in CSS
         // but need px for JS calculations. We can create a hidden ruler element or estimate.
-        // 297mm * 3.7795275591 px/mm ≈ 1122.5px
-        const A4_HEIGHT_PX = 1122.5; 
+        // 297mm * 3.7795275591 px/mm ≈ 1122.52px
+        const A4_HEIGHT_PX = 1122.52; 
         const height = contentRef.current.scrollHeight;
         const newPageCount = Math.max(1, Math.ceil(height / A4_HEIGHT_PX));
         if (newPageCount !== pageCount) {
@@ -56,6 +56,7 @@ export function PageLayout({ children, margins, headerHtml, footerHtml, hasTitle
   return (
     <div className="flex flex-col items-center bg-[#F8F9FA] min-h-full py-8 gap-8 relative">
       {/* Background Pages Layer */}
+      {/* py-8 = 32px top, gap-8 = 32px between pages */}
       <div className="absolute top-8 left-0 right-0 flex flex-col items-center gap-8 pointer-events-none">
         {pages.map((pageIndex) => (
           <div
@@ -70,7 +71,7 @@ export function PageLayout({ children, margins, headerHtml, footerHtml, hasTitle
           >
             {/* Header */}
             {(() => {
-                let htmlToRender = '';
+                let htmlToRender: string | null = null;
                 if (typeof headerHtml === 'string') {
                     try {
                         const headerData = JSON.parse(headerHtml);
@@ -88,13 +89,15 @@ export function PageLayout({ children, margins, headerHtml, footerHtml, hasTitle
                     }
                 } else if (headerHtml) {
                     if (pageIndex === 0 && hasTitlePg) {
-                        htmlToRender = headerHtml.first || '';
+                        htmlToRender = headerHtml.first !== undefined ? headerHtml.first : '';
                     } else {
                         htmlToRender = headerHtml.default || '';
                     }
                 }
 
-                if (!htmlToRender) return null;
+                if (htmlToRender === null || htmlToRender === undefined || htmlToRender === '') return null;
+
+                htmlToRender = htmlToRender.replace(/{{PAGE_NUMBER}}/g, String(pageIndex + 1));
 
                 return (
                     <div
@@ -111,19 +114,19 @@ export function PageLayout({ children, margins, headerHtml, footerHtml, hasTitle
                             height: currentMargins.top,
                             boxSizing: 'border-box',
                             overflow: 'hidden',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            justifyContent: 'flex-start'
-                        }}
-                    >
-                      <div dangerouslySetInnerHTML={{ __html: htmlToRender }} className="[&>p]:flex [&>p]:justify-between [&>p]:w-full [&>p]:m-0" />
-                    </div>
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'flex-start'
+                            }}
+                        >
+                          <div dangerouslySetInnerHTML={{ __html: htmlToRender }} className="[&>p]:w-full [&>p]:m-0 [&>p]:min-h-[1em] [&>div]:w-full [&>div]:m-0 [&>div]:min-h-[1em]" />
+                        </div>
                 );
             })()}
 
             {/* Footer */}
             {(() => {
-                let htmlToRender = '';
+                let htmlToRender: string | null = null;
                 if (typeof footerHtml === 'string') {
                     try {
                         const footerData = JSON.parse(footerHtml);
@@ -141,13 +144,15 @@ export function PageLayout({ children, margins, headerHtml, footerHtml, hasTitle
                     }
                 } else if (footerHtml) {
                     if (pageIndex === 0 && hasTitlePg) {
-                        htmlToRender = footerHtml.first || '';
+                        htmlToRender = footerHtml.first !== undefined ? footerHtml.first : '';
                     } else {
                         htmlToRender = footerHtml.default || '';
                     }
                 }
 
-                if (!htmlToRender) return null;
+                if (htmlToRender === null || htmlToRender === undefined || htmlToRender === '') return null;
+
+                htmlToRender = htmlToRender.replace(/{{PAGE_NUMBER}}/g, String(pageIndex + 1));
 
                 return (
                     <div
@@ -164,13 +169,13 @@ export function PageLayout({ children, margins, headerHtml, footerHtml, hasTitle
                             height: currentMargins.bottom,
                             boxSizing: 'border-box',
                             overflow: 'hidden',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            justifyContent: 'flex-end'
-                        }}
-                    >
-                       <div dangerouslySetInnerHTML={{ __html: htmlToRender }} className="[&>p]:flex [&>p]:justify-between [&>p]:w-full [&>p]:m-0" />
-                    </div>
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'flex-start'
+                            }}
+                        >
+                           <div dangerouslySetInnerHTML={{ __html: htmlToRender }} className="[&>p]:w-full [&>p]:m-0 [&>p]:min-h-[1em] [&>div]:w-full [&>div]:m-0 [&>div]:min-h-[1em] pb-[12.7mm]" />
+                        </div>
                 );
             })()}
           </div>
@@ -187,7 +192,7 @@ export function PageLayout({ children, margins, headerHtml, footerHtml, hasTitle
           boxSizing: 'border-box',
           fontFamily: '"Malgun Gothic", "맑은 고딕", sans-serif',
           fontSize: '11pt',
-          lineHeight: '1.6',
+          lineHeight: 'normal',
           paddingTop: currentMargins.top,
           paddingRight: currentMargins.right,
           paddingBottom: currentMargins.bottom,
