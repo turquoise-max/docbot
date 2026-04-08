@@ -79,24 +79,39 @@ export default function EditorPage() {
     fetchDocument()
   }, [id, supabase])
 
-  // Call this periodically or on selection change event from Syncfusion (needs implementation in SyncfusionDocEditor)
-  const updateSelection = useCallback(() => {
-     if (editorRef.current) {
-        const text = editorRef.current.getSelectionText();
-        setSelectedText(text);
-        setSelectedHtml(text); // Syncfusion doesn't easily expose selected HTML directly, using text for now
-        
-        const allText = editorRef.current.getText();
-        setContent(allText); // Update context for AI
-     }
+  const handleSelectionChange = useCallback((html: string, text: string) => {
+    setSelectedHtml(html);
+    setSelectedText(text);
   }, []);
 
-  useEffect(() => {
-     // A simple polling mechanism to check selection, ideally replaced by events from Syncfusion DocumentEditor
-     const interval = setInterval(updateSelection, 2000);
-     return () => clearInterval(interval);
-  }, [updateSelection]);
+  const handleContentChange = useCallback((text: string) => {
+    setContent(text);
+  }, []);
 
+  // Debounced auto-save effect
+  useEffect(() => {
+    if (!id || isInitializing || !editorRef.current) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const sfdt = editorRef.current?.getSfdt();
+        if (sfdt) {
+          const { error } = await supabase
+            .from('documents')
+            .update({ content_html: sfdt })
+            .eq('id', id);
+            
+          if (error) {
+            console.error('Failed to auto-save document:', error);
+          }
+        }
+      } catch (err) {
+        console.error('Error during auto-save:', err);
+      }
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [content, id, isInitializing, supabase]);
 
   const handleApplyEdit = (newContent: string) => {
     if (editorRef.current) {
@@ -127,7 +142,11 @@ export default function EditorPage() {
         <div className="flex-1 relative bg-[#f0f0f0]">
           <div className="absolute inset-0">
             {!isInitializing && (
-               <SyncfusionDocEditor ref={editorRef} />
+               <SyncfusionDocEditor 
+                 ref={editorRef} 
+                 onSelectionChange={handleSelectionChange}
+                 onContentChange={handleContentChange}
+               />
             )}
           </div>
         </div>

@@ -105,17 +105,42 @@ DocumentEditorContainerComponent.Inject(Toolbar);
 export interface SyncfusionDocEditorRef {
   getText: () => string;
   getSelectionText: () => string;
-  replaceSelection: (text: string) => void;
+  replaceSelection: (text: string) => Promise<void>;
   loadDocument: (sfdt: string) => void;
+  getSfdt: () => string;
 }
 
 interface SyncfusionDocEditorProps {
-  // Add props if needed
+  onSelectionChange?: (html: string, text: string) => void;
+  onContentChange?: (text: string) => void;
 }
 
 const SyncfusionDocEditor = forwardRef<SyncfusionDocEditorRef, SyncfusionDocEditorProps>(
   (props, ref) => {
     const containerRef = useRef<DocumentEditorContainerComponent>(null);
+
+    const handleSelectionChange = () => {
+      const editor = containerRef.current?.documentEditor;
+      if (!editor) return;
+      
+      if (props.onSelectionChange) {
+        // htmlContent를 우선적으로 가져오고, 텍스트는 태그를 제거하여 빠르고 안전하게 추출
+        const html = (editor.selection as any).htmlContent || '';
+        const text = html ? html.replace(/<[^>]*>?/gm, '') : ((editor.selection as any).text || '');
+        props.onSelectionChange(html, text);
+      }
+    };
+
+    const handleContentChange = () => {
+      const editor = containerRef.current?.documentEditor;
+      if (!editor) return;
+      
+      if (props.onContentChange) {
+        // @ts-ignore
+        const text = editor.text || '';
+        props.onContentChange(text);
+      }
+    };
 
     useImperativeHandle(ref, () => ({
       getText: () => {
@@ -129,17 +154,51 @@ const SyncfusionDocEditor = forwardRef<SyncfusionDocEditorRef, SyncfusionDocEdit
         if (!editor) return '';
         return editor.selection.text;
       },
-      replaceSelection: (text: string) => {
+      replaceSelection: async (text: string) => {
         const editor = containerRef.current?.documentEditor;
         if (!editor) return;
-        // Insert text at the current selection
-        editor.editor.insertText(text);
+        
+        try {
+          const response = await fetch('/api/document/convert-html', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ html: text }),
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to convert HTML to SFDT');
+          }
+
+          const sfdt = await response.text();
+          
+          // 현재 선택 영역이 없다면 (커서만 있는 경우), 커서 위치에 삽입
+          if (editor.selection.isEmpty) {
+             editor.editor.paste(sfdt);
+          } else {
+             // 선택 영역이 있다면 해당 영역을 덮어쓰기 위해 먼저 지우고 붙여넣기
+             editor.editor.delete();
+             editor.editor.paste(sfdt);
+          }
+        } catch (error) {
+          console.error('Failed to convert HTML to SFDT, falling back to plain text:', error);
+          if (!editor.selection.isEmpty) {
+             editor.editor.delete();
+          }
+          editor.editor.insertText(text);
+        }
       },
       loadDocument: (sfdt: string) => {
          const editor = containerRef.current?.documentEditor;
          if (editor && sfdt) {
              editor.open(sfdt);
          }
+      },
+      getSfdt: () => {
+        const editor = containerRef.current?.documentEditor;
+        if (!editor) return '';
+        return editor.serialize();
       }
     }));
 
@@ -153,6 +212,8 @@ const SyncfusionDocEditor = forwardRef<SyncfusionDocEditorRef, SyncfusionDocEdit
           style={{ display: 'block' }}
           enableToolbar={true}
           locale="ko"
+          selectionChange={handleSelectionChange}
+          contentChange={handleContentChange}
         />
       </div>
     );

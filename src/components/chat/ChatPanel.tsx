@@ -23,6 +23,51 @@ interface ChatPanelProps {
   editorRef?: RefObject<SyncfusionDocEditorRef>
 }
 
+// 툴 UI 상태 관리를 위한 내부 컴포넌트 추가
+function UpdateEditorTool({ args, editorRef, onApplyEdit }: { args: { modifiedHtml: string }, editorRef?: RefObject<SyncfusionDocEditorRef>, onApplyEdit: (html: string) => void }) {
+  const [status, setStatus] = useState<'pending' | 'applied' | 'rejected'>('pending');
+
+  if (status === 'applied') {
+    return (
+      <div className="max-w-[85%] w-full p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-700 mt-2">
+        <Check size={16} />
+        <span className="text-sm font-medium">수정 내용이 적용되었습니다.</span>
+      </div>
+    );
+  }
+
+  if (status === 'rejected') {
+    return null; // 거절 시 숨김 처리
+  }
+
+  return (
+    <div className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
+      <p className="text-xs font-bold text-blue-700 mb-2">AI가 수정한 내용을 적용할까요?</p>
+      <div className="flex gap-2">
+        <button 
+          onClick={async () => {
+            if (editorRef?.current) {
+              await editorRef.current.replaceSelection(args.modifiedHtml);
+            } else {
+              onApplyEdit(args.modifiedHtml);
+            }
+            setStatus('applied');
+          }}
+          className="flex-1 flex items-center justify-center gap-1 bg-blue-600 text-white py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
+        >
+          <Check size={16} /> 수락
+        </button>
+        <button 
+          onClick={() => setStatus('rejected')}
+          className="flex-1 flex items-center justify-center gap-1 bg-white border border-gray-200 text-gray-600 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
+        >
+          <X size={16} /> 거절
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatPanel({ selectedHtml, selectedText, editorContext, onApplyEdit, editorRef }: ChatPanelProps) {
   const activePreviewIdRef = useRef<string | null>(null)
   const hasInitializedAnalyizeRef = useRef(false)
@@ -123,7 +168,7 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
                 {m.parts 
                   ? m.parts.filter((p) => p.type === 'text').map((p) => (p as {type: 'text'; text: string}).text).join('')
                   : ('text' in m ? (m as {text: string}).text : ('content' in m ? (m as {content: string}).content : ''))}
-              </div>    
+              </div>
             </div>
 
             {/* 6. toolInvocations가 제거되고 parts 배열 안에서 'tool-{이름}' 형태로 변경됨 */}
@@ -137,7 +182,7 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
                       title={args.title} 
                       items={args.items} 
                       onApply={() => {
-                        const html = `${args.title}\n` + args.items.map((item) => `${item.text}\n`).join('');
+                        const html = `<h2>${args.title}</h2><ul>` + args.items.map((item) => `<li>${item.text}</li>`).join('') + `</ul>`;
                         if (editorRef?.current) {
                           editorRef.current.replaceSelection(html);
                         }
@@ -149,33 +194,16 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
 
               if (part.type === 'tool-updateEditor') {
                 const args = part.input as { modifiedHtml: string };
+                // 툴 호출 결과(적용됨/거절됨)를 로컬 상태나 sessionStorage 등으로 관리할 수도 있지만,
+                // 여기서는 간단히 DOM 속성을 활용하거나, 컴포넌트 내부에서 상태를 가질 수 있도록 하위 컴포넌트로 분리하는 것이 좋습니다.
+                // 편의상 인라인 컴포넌트로 처리
                 return (
-                  <div key={`tool-${index}`} className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
-                    <p className="text-xs font-bold text-blue-700 mb-2">AI가 수정한 내용을 적용할까요?</p>
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => {
-                          if (editorRef?.current) {
-                            editorRef.current.replaceSelection(args.modifiedHtml);
-                          } else {
-                            onApplyEdit(args.modifiedHtml);
-                          }
-                        }}
-                        className="flex-1 flex items-center justify-center gap-1 bg-blue-600 text-white py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
-                      >
-                        <Check size={16} /> 수락
-                      </button>
-                      <button 
-                        onClick={(e) => {
-                          const target = e.currentTarget;
-                          target.parentElement?.parentElement?.remove();
-                        }}
-                        className="flex-1 flex items-center justify-center gap-1 bg-white border border-gray-200 text-gray-600 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
-                      >
-                        <X size={16} /> 거절
-                      </button>
-                    </div>
-                  </div>
+                  <UpdateEditorTool
+                    key={`tool-${index}`}
+                    args={args}
+                    editorRef={editorRef}
+                    onApplyEdit={onApplyEdit}
+                  />
                 );
               }
 

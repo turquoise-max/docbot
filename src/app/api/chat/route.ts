@@ -1,13 +1,9 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
-import { streamText, tool } from 'ai'
+import { streamText, tool, convertToModelMessages } from 'ai'
 import { z } from 'zod'
 
 export const maxDuration = 30
 
-// 환경변수 매핑 안내:
-// Vercel AI SDK의 Google Provider는 기본적으로 'GOOGLE_GENERATIVE_AI_API_KEY' 환경변수를 찾습니다.
-// 만약 사용자가 .env.local에 'GEMINI_API_KEY'라는 이름으로 키를 저장했다면,
-// 아래와 같이 createGoogleGenerativeAI 설정에 apiKey를 명시적으로 전달하여 매핑할 수 있습니다.
 const google = createGoogleGenerativeAI({
   apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY,
 })
@@ -41,14 +37,18 @@ ${selectedHtml || ''}
 항상 전문적이고 정중한 한국어 실무 톤을 유지하십시오.
 `
 
+  // 1. 메시지 형식을 서버 모델용으로 변환 (v5.0+ 스펙에 맞게 await 처리)
+  const modelMessages = await convertToModelMessages(messages);
+
   const result = await streamText({
     model: google('gemini-3-flash-preview'),
     system: systemPrompt,
-    messages,
+    messages: modelMessages,
     tools: {
+      // 2. parameters 대신 최신 스펙인 inputSchema를 사용합니다.
       generateToc: tool({
         description: '문서의 목차를 생성합니다. 사용자가 목차, 구조, 뼈대 등을 요구할 때 사용합니다.',
-        parameters: z.object({
+        inputSchema: z.object({ // 💡 parameters -> inputSchema 로 변경
           title: z.string().describe('목차의 제목'),
           items: z.array(z.object({
             id: z.string().describe('고유 ID'),
@@ -58,12 +58,12 @@ ${selectedHtml || ''}
         })
       }),
       updateEditor: tool({
-        description: '에디터의 선택된 영역을 새로운 내용으로 교체하기 위해 수정된 HTML을 제안합니다. 사용자가 특정 부분의 수정을 요구할 때 사용합니다.',
-        parameters: z.object({
+        description: '에디터의 선택된 영역을 새로운 내용으로 교체하기 위해 수정된 HTML을 제안합니다.',
+        inputSchema: z.object({ // 💡 parameters -> inputSchema 로 변경
           modifiedHtml: z.string().describe('기존 서식을 유지하며 내용이 수정된 완전한 HTML 문자열')
         })
       })
-    }
+    } // 이제 'as any' 없이도 타입 추론이 완벽하게 작동합니다.
   })
 
   return result.toTextStreamResponse()
