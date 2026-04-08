@@ -154,37 +154,40 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
         }
       });
 
+      // Force Layout Reflow to ensure accurate offset calculations
+      void editor.offsetHeight;
+
       // Recalculate editor rect after reset
       const editorRect = editor.getBoundingClientRect();
 
-      // 에디터의 상단 패딩(32px)을 절대 오프셋 계산에 반영
-      let currentTopOffset = EDITOR_TOP_PADDING; // 누적 오차를 방지하기 위해 각 요소의 상대적 높이를 바탕으로 계산
+      // 에디터의 컨테이너 기준 높이 측정
+      // currentTopOffset은 현재 페이지 내에서의 누적 높이
+      let currentTopOffset = topMargin; 
+      let currentPageIndex = 0;
 
       for (let i = 0; i < children.length; i++) {
         const child = children[i];
         
-        // 브라우저 렌더링 값 가져오기
-        const rect = child.getBoundingClientRect();
-        
         // 실제 요소의 높이 (마진 포함)
+        const rect = child.getBoundingClientRect();
         const computedStyle = window.getComputedStyle(child);
         const marginTop = parseFloat(computedStyle.marginTop) || 0;
         const marginBottom = parseFloat(computedStyle.marginBottom) || 0;
         const childTotalHeight = rect.height + marginTop + marginBottom;
         
-        // 현재 요소의 (가상 페이퍼 상) 절대 상단 위치 (마진 미포함, 실제 내용 시작점)
-        // currentTopOffset은 이전 요소들까지의 누적 높이
-        const absoluteTop = currentTopOffset + topMargin + marginTop;
-        const absoluteBottom = absoluteTop + rect.height;
+        // 현재 페이지의 content 영역 하단 경계
+        const pageContentBottom = PAGE_HEIGHT - bottomMargin;
+        
+        // 현재 요소가 들어갈 경우의 하단 위치
+        const expectedBottom = currentTopOffset + childTotalHeight;
 
-        const pageIndex = Math.floor(absoluteTop / (PAGE_HEIGHT + GAP));
-        const pageStart = pageIndex * (PAGE_HEIGHT + GAP);
-        const pageContentBottom = pageStart + PAGE_HEIGHT - bottomMargin;
-
-        if (absoluteBottom > pageContentBottom && rect.height < (PAGE_HEIGHT - topMargin - bottomMargin)) {
-          // Push down to next page
-          const nextPageContentStart = (pageIndex + 1) * (PAGE_HEIGHT + GAP) + topMargin;
-          const pushAmount = nextPageContentStart - absoluteTop;
+        // 오차 보정 (1px 미만은 무시)
+        if (expectedBottom > pageContentBottom + 1 && rect.height < (PAGE_HEIGHT - topMargin - bottomMargin)) {
+          // 다음 페이지로 넘겨야 함
+          currentPageIndex++;
+          
+          // 새 페이지에서의 시작 위치 보정량
+          const pushAmount = (PAGE_HEIGHT - currentTopOffset) + GAP + topMargin;
 
           if (pushAmount > 0) {
              child.dataset.origMarginTop = child.style.marginTop || '';
@@ -193,9 +196,9 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
              child.style.marginTop = `${marginTop + pushAmount}px`;
              layoutChanged = true;
              
-             // 다음 요소를 위한 오프셋 갱신 (pushAmount 만큼 추가됨)
-             currentTopOffset += childTotalHeight + pushAmount;
-             continue; // push 후에는 이 요소의 계산이 끝남
+             // 다음 페이지 기준점 초기화
+             currentTopOffset = topMargin + childTotalHeight;
+             continue; 
           }
         }
         
@@ -218,7 +221,7 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
           calculatePageBreaks();
-        }, 300);
+        }, 150);
       });
 
       if (editorRef.current) {
@@ -310,7 +313,7 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
               onInput={handleInput}
               onMouseUp={handleSelect}
               onKeyUp={handleSelect}
-              className="outline-none h-full w-full"
+              className="outline-none h-full w-full [&_p]:!m-0 [&_p]:!leading-[1.15]"
               style={{
                 margin: 0,
                 padding: 0,
@@ -318,7 +321,7 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
                  // Added baseline typography matching word defaults more closely
                  fontFamily: '"Malgun Gothic", "맑은 고딕", sans-serif',
                  fontSize: '11pt',
-                 lineHeight: 'normal',
+                 lineHeight: 1.15,
                  color: '#000000'
               }}
             />

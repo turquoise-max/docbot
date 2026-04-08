@@ -119,7 +119,7 @@ export function PageLayout({ children, margins, headerHtml, footerHtml, hasTitle
                                 justifyContent: 'flex-start'
                             }}
                         >
-                          <div dangerouslySetInnerHTML={{ __html: htmlToRender }} className="[&>p]:w-full [&>p]:m-0 [&>p]:min-h-[1em] [&>div]:w-full [&>div]:m-0 [&>div]:min-h-[1em]" />
+                          <div dangerouslySetInnerHTML={{ __html: htmlToRender }} className="[&>p]:w-full [&>p]:m-0 [&>p]:min-h-[1em] [&>p]:leading-[1.15] [&>div]:w-full [&>div]:m-0 [&>div]:min-h-[1em]" />
                         </div>
                 );
             })()}
@@ -166,16 +166,16 @@ export function PageLayout({ children, margins, headerHtml, footerHtml, hasTitle
                             paddingLeft: currentMargins.left,
                             color: '#666',
                             fontSize: '9pt',
-                            height: currentMargins.bottom,
+                            minHeight: currentMargins.bottom,
                             boxSizing: 'border-box',
-                            overflow: 'hidden',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                justifyContent: 'flex-start'
-                            }}
-                        >
-                           <div dangerouslySetInnerHTML={{ __html: htmlToRender }} className="[&>p]:w-full [&>p]:m-0 [&>p]:min-h-[1em] [&>div]:w-full [&>div]:m-0 [&>div]:min-h-[1em] pb-[12.7mm]" />
-                        </div>
+                            overflow: 'visible',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'flex-start'
+                        }}
+                    >
+                       <div dangerouslySetInnerHTML={{ __html: htmlToRender }} className="[&>p]:w-full [&>p]:!m-0 [&>p]:min-h-[1em] [&>p]:!leading-[1.15] [&>div]:w-full [&>div]:!m-0 [&>div]:min-h-[1em]" />
+                    </div>
                 );
             })()}
           </div>
@@ -185,14 +185,14 @@ export function PageLayout({ children, margins, headerHtml, footerHtml, hasTitle
       {/* Foreground Content Layer */}
       <div
         ref={contentRef}
-        className="relative z-10"
+        className="relative z-10 [&_p]:!m-0 [&_p]:!leading-[1.15]"
         style={{
           width: '210mm',
           minHeight: '297mm',
           boxSizing: 'border-box',
           fontFamily: '"Malgun Gothic", "맑은 고딕", sans-serif',
           fontSize: '11pt',
-          lineHeight: 'normal',
+          lineHeight: 1.15,
           paddingTop: currentMargins.top,
           paddingRight: currentMargins.right,
           paddingBottom: currentMargins.bottom,

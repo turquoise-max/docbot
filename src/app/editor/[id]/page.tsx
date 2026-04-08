@@ -1,26 +1,21 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
-import type { DocEditorRef } from '@/features/document-editor/DocEditor'
 import ChatPanel from '@/components/chat/ChatPanel'
 import { createClient } from '@/lib/supabase/client'
-import { DocEditor } from '@/features/document-editor/DocEditor'
+import SyncfusionDocEditor, { SyncfusionDocEditorRef } from '@/components/editor/SyncfusionDocEditor'
 
 export default function EditorPage() {
   const params = useParams()
   const id = params.id as string
   const supabase = createClient()
 
-  const editorRef = useRef<DocEditorRef>(null)
+  const editorRef = useRef<SyncfusionDocEditorRef>(null)
   const [content, setContent] = useState('')
-  const [headerHtml, setHeaderHtml] = useState<string | { first?: string; default: string } | undefined>()
-  const [footerHtml, setFooterHtml] = useState<string | undefined>()
-  const [margins, setMargins] = useState<{ top: string; right: string; bottom: string; left: string } | undefined>()
   const [title, setTitle] = useState('무제 문서')
   const [selectedHtml, setSelectedHtml] = useState('')
   const [selectedText, setSelectedText] = useState('')
-  const [hasTitlePg, setHasTitlePg] = useState(false)
   const [isInitializing, setIsInitializing] = useState(true)
 
   useEffect(() => {
@@ -41,23 +36,37 @@ export default function EditorPage() {
 
         if (data) {
           setTitle(data.title)
-          setContent(data.content_html || '')
-        if (data.header_html) {
-            try {
-                // Try parsing JSON first, if it's our new format
-                const parsedHeader = JSON.parse(data.header_html);
-                setHeaderHtml(parsedHeader);
-            } catch (e) {
-                // If parsing fails, treat it as a plain string (old format)
-                setHeaderHtml(data.header_html);
+          
+          if (data.file_path) {
+            // Fetch DOCX file from Storage and convert to SFDT
+            const { data: fileData, error: downloadError } = await supabase.storage
+              .from('files')
+              .download(data.file_path)
+
+            if (downloadError) {
+              console.error('Error downloading file:', downloadError)
+            } else if (fileData) {
+              const formData = new FormData();
+              formData.append('document', fileData, 'document.docx');
+              
+              // Call server API route to convert DOCX to SFDT (Syncfusion Document Format)
+              const response = await fetch('/api/document/import', {
+                method: 'POST',
+                body: formData
+              });
+              
+              if (response.ok) {
+                 const sfdt = await response.text();
+                 // Load into editor via ref after short delay to ensure component is mounted
+                 setTimeout(() => {
+                   if (editorRef.current) {
+                     editorRef.current.loadDocument(sfdt);
+                   }
+                 }, 500);
+              } else {
+                 console.error('Failed to convert document to SFDT');
+              }
             }
-        }
-        if (data.footer_html) setFooterHtml(data.footer_html)
-          if (data.margins_json) {
-              setMargins(data.margins_json as unknown as { top: string; right: string; bottom: string; left: string })
-          }
-          if (data.has_title_pg !== undefined) {
-              setHasTitlePg(data.has_title_pg)
           }
         }
       } catch (error) {
@@ -70,16 +79,28 @@ export default function EditorPage() {
     fetchDocument()
   }, [id, supabase])
 
-  const handleSelection = (html: string, text: string) => {
-    setSelectedHtml(html)
-    setSelectedText(text)
-  }
+  // Call this periodically or on selection change event from Syncfusion (needs implementation in SyncfusionDocEditor)
+  const updateSelection = useCallback(() => {
+     if (editorRef.current) {
+        const text = editorRef.current.getSelectionText();
+        setSelectedText(text);
+        setSelectedHtml(text); // Syncfusion doesn't easily expose selected HTML directly, using text for now
+        
+        const allText = editorRef.current.getText();
+        setContent(allText); // Update context for AI
+     }
+  }, []);
+
+  useEffect(() => {
+     // A simple polling mechanism to check selection, ideally replaced by events from Syncfusion DocumentEditor
+     const interval = setInterval(updateSelection, 2000);
+     return () => clearInterval(interval);
+  }, [updateSelection]);
+
 
   const handleApplyEdit = (newContent: string) => {
-    if (selectedHtml && editorRef.current) {
-      editorRef.current.replaceSelectionHtml(newContent)
-    } else {
-      setContent(newContent)
+    if (editorRef.current) {
+      editorRef.current.replaceSelection(newContent)
     }
   }
 
@@ -103,19 +124,10 @@ export default function EditorPage() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-hidden bg-[#f0f0f0]">
-          <div className="h-full w-full">
+        <div className="flex-1 relative bg-[#f0f0f0]">
+          <div className="absolute inset-0">
             {!isInitializing && (
-              <DocEditor 
-                ref={editorRef}
-                content={content}
-                headerHtml={headerHtml}
-                footerHtml={footerHtml}
-                margins={margins}
-                onChange={setContent} 
-                onSelection={handleSelection}
-                hasTitlePg={hasTitlePg}
-              />
+               <SyncfusionDocEditor ref={editorRef} />
             )}
           </div>
         </div>

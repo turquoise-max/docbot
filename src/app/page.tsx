@@ -5,7 +5,7 @@ import { FileText, Upload, Plus, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { parseDocxToRetainedHtml } from '@/lib/utils/document'
+// import { parseDocxToRetainedHtml } from '@/lib/utils/document' // removed legacy parser
 
 export default function HomePage() {
   const router = useRouter()
@@ -44,33 +44,45 @@ export default function HomePage() {
 
     setIsUploading(true)
     try {
-      const parsedData = await parseDocxToRetainedHtml(file)
       const title = file.name.replace(/\.docx$/i, '')
 
+      // 1. Upload DOCX file to Supabase Storage
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${Math.random()}.${fileExt}`
+      const filePath = `documents/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('files') // assuming a bucket named 'files' exists
+        .upload(filePath, file)
+
+      if (uploadError) {
+        console.error('Failed to upload file to storage:', uploadError)
+        alert('파일 업로드에 실패했습니다.')
+        return
+      }
+
+      // 2. Create document record in database with storage path
       const { data, error } = await supabase
         .from('documents')
         .insert({
             title,
-            content_html: parsedData.html,
-            header_html: parsedData.headers ? JSON.stringify(parsedData.headers) : null,
-            footer_html: parsedData.footers ? JSON.stringify(parsedData.footers) : null,
-            margins_json: parsedData.margins as any,
-            user_id: null,
-            has_title_pg: parsedData.hasTitlePg
+            content_html: '', // Will be loaded from sfdt via Syncfusion
+            file_path: filePath, // Requires adding file_path column to documents table
+            user_id: null
         })
         .select()
         .single()
 
       if (error || !data) {
-        console.error('Failed to create document:', error)
+        console.error('Failed to create document record:', error)
         alert('문서 생성에 실패했습니다.')
         return
       }
 
       router.push(`/editor/${data.id}`)
     } catch (error) {
-      console.error('Failed to parse docx:', error)
-      alert('파일 파싱에 실패했습니다.')
+      console.error('Failed to process upload:', error)
+      alert('업로드 처리 중 오류가 발생했습니다.')
     } finally {
       setIsUploading(false)
       // Reset input

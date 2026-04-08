@@ -1,8 +1,8 @@
 'use client'
 
 import { useChat } from '@ai-sdk/react'
-import { type Message } from 'ai'
-import { useEffect, useRef } from 'react'
+import { type UIMessage } from 'ai' // Message 대신 UIMessage 사용
+import { useEffect, useRef, useState } from 'react' // useState 추가
 import { Send, User, Bot, Check, X } from 'lucide-react'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
@@ -13,74 +13,82 @@ function cn(...inputs: ClassValue[]) {
 }
 
 import { RefObject } from 'react'
-import { TinyMceEditorRef } from '../editor/TinyMceEditor'
+import { SyncfusionDocEditorRef } from '../editor/SyncfusionDocEditor'
 
 interface ChatPanelProps {
   selectedHtml: string
   selectedText: string
   editorContext: string
   onApplyEdit: (newContent: string) => void
-  editorRef?: RefObject<TinyMceEditorRef>
+  editorRef?: RefObject<SyncfusionDocEditorRef>
 }
 
 export default function ChatPanel({ selectedHtml, selectedText, editorContext, onApplyEdit, editorRef }: ChatPanelProps) {
   const activePreviewIdRef = useRef<string | null>(null)
-  const isStreamingRef = useRef<boolean>(false)
-  
   const hasInitializedAnalyizeRef = useRef(false)
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, append, stop } = useChat({
-    api: '/api/chat',
-    body: {
-      selectedHtml,
-      selectedText,
-      editorContext,
-    },
-    onResponse: () => {
-      isStreamingRef.current = true
-    },
-    onFinish: () => {
-      isStreamingRef.current = false
-    },
-  })
+  // 1. AI SDK v5.0+ 에 맞춰 input 상태를 직접 관리
+  const [input, setInput] = useState('')
+
+  // 2. useChat의 변경된 반환값 사용 (api 속성은 기본값이 /api/chat 이므로 생략)
+  const { messages, sendMessage, status, stop } = useChat()
+
+  // 기존 isLoading과 isStreamingRef를 status 하나로 대체
+  const isStreaming = status === 'submitted' || status === 'streaming'
+
+  // 3. 수동 input 변경 핸들러
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value)
+  }
+
+  // 4. 수동 submit 핸들러 (append 대신 sendMessage 사용)
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!input.trim() || isStreaming) return
+
+    sendMessage(
+      { text: input },
+      { 
+        // 최신 상태의 에디터 컨텍스트를 전송 시점에 body로 태워 보냅니다.
+        body: { selectedHtml, selectedText, editorContext } 
+      }
+    )
+    setInput('')
+  }
 
   useEffect(() => {
-    // sessionStorage에서 'isDocxUpload' 플래그 확인 후 브리핑 요청
     const initialDataStr = sessionStorage.getItem('initialEditorContent')
     if (initialDataStr && !hasInitializedAnalyizeRef.current) {
       try {
         const parsed = JSON.parse(initialDataStr)
         if (parsed.type === 'html' && parsed.isDocxUpload) {
           hasInitializedAnalyizeRef.current = true
-          if (append && typeof append === 'function') {
-            append({
-              role: 'user',
-              content: '업로드된 문서의 구조와 내용을 분석해서 요약해줘. "[문서 구조 분석 브리핑]" 이라는 제목으로 시작해.'
-            })
-          }
           
-          // 분석 요청 후 플래그 제거하여 새로고침 시 재요청 방지
+          // 초기 브리핑 요청도 sendMessage로 변경
+          sendMessage(
+            { text: '업로드된 문서의 구조와 내용을 분석해서 요약해줘. "[문서 구조 분석 브리핑]" 이라는 제목으로 시작해.' },
+            { body: { selectedHtml, selectedText, editorContext } }
+          )
+          
           sessionStorage.setItem('initialEditorContent', JSON.stringify({ ...parsed, isDocxUpload: false }))
         }
       } catch (e) {
         // ignore
       }
     }
-  }, [append])
+  }, [sendMessage, selectedHtml, selectedText, editorContext])
 
-  // Handle aborting from the editor's reject button
   useEffect(() => {
     const handleReject = () => {
-      if (isStreamingRef.current) {
+      if (isStreaming) {
         stop()
-        isStreamingRef.current = false
       }
       activePreviewIdRef.current = null
     }
 
     window.addEventListener('ai-preview-rejected', handleReject as EventListener)
     return () => window.removeEventListener('ai-preview-rejected', handleReject as EventListener)
-  }, [stop])
+  }, [stop, isStreaming])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -99,7 +107,8 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((m: Message) => (
+        {/* 5. Message 타입을 UIMessage로 변경 */}
+        {messages.map((m: UIMessage) => (
           <div key={m.id} className={cn("flex flex-col gap-2", m.role === 'user' ? "items-end" : "items-start")}>
             <div className={cn(
               "max-w-[85%] p-3 rounded-lg text-sm shadow-sm",
@@ -110,24 +119,27 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
                 <span className="font-bold">{m.role === 'user' ? '나' : '문서봇'}</span>
               </div>
               <div className="whitespace-pre-wrap leading-relaxed">
-                {m.content}
-              </div>
+                {/* 최신 SDK 구조에 맞게 텍스트 파트 렌더링 */}
+                {m.parts 
+                  ? m.parts.filter((p) => p.type === 'text').map((p) => (p as {type: 'text'; text: string}).text).join('')
+                  : ('text' in m ? (m as {text: string}).text : ('content' in m ? (m as {content: string}).content : ''))}
+              </div>    
             </div>
 
-            {m.toolInvocations?.map(toolInvocation => {
-              const { toolCallId, toolName, args } = toolInvocation;
-
-              if (toolName === 'generateToc') {
+            {/* 6. toolInvocations가 제거되고 parts 배열 안에서 'tool-{이름}' 형태로 변경됨 */}
+            {m.parts?.map((part, index: number) => {
+              if (part.type === 'tool-generateToc') {
+                // v5.0 부터는 args 필드가 input 필드로 이름이 변경되었습니다.
+                const args = part.input as { title: string, items: { id: string, level: number, text: string }[] };
                 return (
-                  <div key={toolCallId} className="max-w-[85%] w-full">
+                  <div key={`tool-${index}`} className="max-w-[85%] w-full">
                     <TocBuilder 
                       title={args.title} 
                       items={args.items} 
                       onApply={() => {
-                        const html = `<h2>${args.title}</h2>` + args.items.map((item: { level: number; text: string }) => `<h${item.level + 1}>${item.text}</h${item.level + 1}>`).join('');
+                        const html = `${args.title}\n` + args.items.map((item) => `${item.text}\n`).join('');
                         if (editorRef?.current) {
-                          // @ts-ignore
-                          editorRef.current.setHtml(html);
+                          editorRef.current.replaceSelection(html);
                         }
                       }} 
                     />
@@ -135,16 +147,16 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
                 );
               }
 
-              if (toolName === 'updateEditor') {
+              if (part.type === 'tool-updateEditor') {
+                const args = part.input as { modifiedHtml: string };
                 return (
-                  <div key={toolCallId} className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
+                  <div key={`tool-${index}`} className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
                     <p className="text-xs font-bold text-blue-700 mb-2">AI가 수정한 내용을 적용할까요?</p>
                     <div className="flex gap-2">
                       <button 
                         onClick={() => {
                           if (editorRef?.current) {
-                            // @ts-ignore
-                            editorRef.current.replaceSelectionHtml(args.modifiedHtml);
+                            editorRef.current.replaceSelection(args.modifiedHtml);
                           } else {
                             onApplyEdit(args.modifiedHtml);
                           }
@@ -184,7 +196,7 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
           />
           <button
             type="submit"
-            disabled={isLoading || !input?.trim()}
+            disabled={isStreaming || !input?.trim()}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-600 disabled:text-gray-300 transition-colors"
           >
             <Send size={20} />

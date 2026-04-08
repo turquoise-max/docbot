@@ -47,6 +47,7 @@ export interface Database {
           margins_json: Json | null
           created_at: string
           updated_at: string
+          file_path: string | null
         }
         Insert: {
           id?: string
@@ -62,6 +63,7 @@ export interface Database {
           margins_json?: Json | null
           created_at?: string
           updated_at?: string
+          file_path?: string | null
         }
         Update: {
           id?: string
@@ -77,6 +79,7 @@ export interface Database {
           margins_json?: Json | null
           created_at?: string
           updated_at?: string
+          file_path?: string | null
         }
       }
       templates: {
