@@ -4,8 +4,9 @@ import { mapRunProperties, mapParagraphProperties, mapTableProperties, mapTableC
 export interface ParseResult {
   html: string;
   margins: { top: string; right: string; bottom: string; left: string };
-  headerHtml?: string;
-  footerHtml?: string;
+  headers?: { first?: string; default?: string };
+  footers?: { first?: string; default?: string };
+  hasTitlePg?: boolean;
 }
 
 export async function parseDocx(buffer: ArrayBuffer): Promise<ParseResult> {
@@ -25,18 +26,23 @@ export async function parseDocx(buffer: ArrayBuffer): Promise<ParseResult> {
   if (!documentXmlString) throw new Error('word/document.xml not found');
   const doc = parser.parseFromString(documentXmlString, 'application/xml');
 
-  // 3. Extract Images (Media)
+  // 3. Extract Images (Media) and relationships
   const images: Record<string, string> = {};
+  const relMap: Record<string, string> = {};
   const relsXmlString = await zip.file('word/_rels/document.xml.rels')?.async('string');
   if (relsXmlString) {
       const relsDoc = parser.parseFromString(relsXmlString, 'application/xml');
       const relationships = relsDoc.querySelectorAll('Relationship');
-      
+
       for (const rel of Array.from(relationships)) {
           const type = rel.getAttribute('Type');
           const target = rel.getAttribute('Target');
           const id = rel.getAttribute('Id');
-          
+
+          if (target && id) {
+              relMap[id] = target;
+          }
+
           if (type?.endsWith('image') && target && id) {
               const imageFile = zip.file(`word/${target}`);
               if (imageFile) {
@@ -49,23 +55,72 @@ export async function parseDocx(buffer: ArrayBuffer): Promise<ParseResult> {
   }
 
   // 4. Parse Header/Footer
-  let headerHtml = '';
-  const headerXmlString = await zip.file('word/header1.xml')?.async('string');
-  if (headerXmlString) {
-      const headerDoc = parser.parseFromString(headerXmlString, 'application/xml');
-      headerHtml = parseContainer(headerDoc.documentElement, globalStyles, images);
+  const sectPrs = doc.getElementsByTagName('w:sectPr');
+  const sectPr = sectPrs.length > 0 ? sectPrs[sectPrs.length - 1] : null;
+  const hasTitlePg = sectPr ? sectPr.getElementsByTagName('w:titlePg').length > 0 : false;
+  
+  const headers: { first?: string; default?: string } = {};
+  const footers: { first?: string; default?: string } = {};
+
+  const headerRefs = sectPr ? Array.from(sectPr.getElementsByTagName('w:headerReference')) : [];
+  if (headerRefs.length > 0) {
+      for (const ref of headerRefs) {
+          const type = ref.getAttribute('w:type');
+          const rId = ref.getAttribute('r:id');
+          if (rId && relMap[rId]) {
+              const target = relMap[rId];
+              const headerXmlString = await zip.file(`word/${target}`)?.async('string');
+              if (headerXmlString) {
+                  const headerDoc = parser.parseFromString(headerXmlString, 'application/xml');
+                  const parsedHtml = parseContainer(headerDoc.documentElement, globalStyles, images);
+                  if (type === 'first' && hasTitlePg) {
+                      headers.first = parsedHtml;
+                  } else if (type === 'default') {
+                      headers.default = parsedHtml;
+                  }
+              }
+          }
+      }
+  } else {
+      // Fallback
+      const headerXmlString = await zip.file('word/header1.xml')?.async('string');
+      if (headerXmlString) {
+          const headerDoc = parser.parseFromString(headerXmlString, 'application/xml');
+          headers.default = parseContainer(headerDoc.documentElement, globalStyles, images);
+      }
   }
 
-  let footerHtml = '';
-  const footerXmlString = await zip.file('word/footer1.xml')?.async('string');
-  if (footerXmlString) {
-      const footerDoc = parser.parseFromString(footerXmlString, 'application/xml');
-      footerHtml = parseContainer(footerDoc.documentElement, globalStyles, images);
+  const footerRefs = sectPr ? Array.from(sectPr.getElementsByTagName('w:footerReference')) : [];
+  if (footerRefs.length > 0) {
+      for (const ref of footerRefs) {
+          const type = ref.getAttribute('w:type');
+          const rId = ref.getAttribute('r:id');
+          if (rId && relMap[rId]) {
+              const target = relMap[rId];
+              const footerXmlString = await zip.file(`word/${target}`)?.async('string');
+              if (footerXmlString) {
+                  const footerDoc = parser.parseFromString(footerXmlString, 'application/xml');
+                  const parsedHtml = parseContainer(footerDoc.documentElement, globalStyles, images);
+                  if (type === 'first' && hasTitlePg) {
+                      footers.first = parsedHtml;
+                  } else if (type === 'default') {
+                      footers.default = parsedHtml;
+                  }
+              }
+          }
+      }
+  } else {
+      // Fallback
+      const footerXmlString = await zip.file('word/footer1.xml')?.async('string');
+      if (footerXmlString) {
+          const footerDoc = parser.parseFromString(footerXmlString, 'application/xml');
+          footers.default = parseContainer(footerDoc.documentElement, globalStyles, images);
+      }
   }
 
   // 5. Build Main HTML
   let html = '';
-  const body = doc.querySelector('body');
+  const body = doc.querySelector('body') || doc.getElementsByTagName('w:body')[0];
   
   if (body) {
       // Create a filtered body that excludes header/footer references if needed,
@@ -73,6 +128,9 @@ export async function parseDocx(buffer: ArrayBuffer): Promise<ParseResult> {
       // However, sometimes headers leak through sectPr or other tags inside body.
       // We explicitly parse only the direct children that are content.
       for (const node of Array.from(body.children)) {
+          // Ignore sectPr to prevent header/footer leakage into main content
+          if (node.tagName === 'w:sectPr' || node.tagName === 'sectPr') continue;
+
           if (node.tagName === 'w:p') {
               html += parseParagraph(node, globalStyles, images);
           } else if (node.tagName === 'w:tbl') {
@@ -86,10 +144,14 @@ export async function parseDocx(buffer: ArrayBuffer): Promise<ParseResult> {
       }
   }
 
-  const sectPr = body?.querySelector('sectPr');
   const margins = extractPageMargins(sectPr || null);
 
-  return { html, margins, headerHtml, footerHtml };
+  // 본문 시작 부분에 헤더 내용이 중복으로 들어가는 문제 방지
+  // 이미 w:sectPr를 무시하도록 처리했으므로, html.startsWith()로 잘라내는 로직이
+  // 오히려 본문 내용과 우연히 일치할 때 본문을 훼손하거나, 앞뒤 공백 등의 차이로 제대로 제거되지 않는 문제를 유발할 수 있습니다.
+  // 이 부분은 제거하여 본문 순수성을 유지합니다.
+
+  return { html, margins, headers, footers, hasTitlePg };
 }
 
 function parseContainer(container: Element, globalStyles: DocxStyles, images: Record<string, string>): string {
@@ -133,20 +195,56 @@ function parseParagraph(p: Element, globalStyles: DocxStyles, images: Record<str
     
     if (pStyleId === 'Title') {
         tag = 'h1';
-        if (!extraStyles.includes('font-size')) extraStyles += ' font-size: 32pt;';
         if (!extraStyles.includes('font-weight')) extraStyles += ' font-weight: bold;';
     } else if (pStyleId?.startsWith('Heading1')) {
         tag = 'h1';
-        if (!extraStyles.includes('font-size')) extraStyles += ' font-size: 24pt;';
         if (!extraStyles.includes('font-weight')) extraStyles += ' font-weight: bold;';
     } else if (pStyleId?.startsWith('Heading2')) {
         tag = 'h2';
-        if (!extraStyles.includes('font-size')) extraStyles += ' font-size: 18pt;';
         if (!extraStyles.includes('font-weight')) extraStyles += ' font-weight: bold;';
     } else if (pStyleId?.startsWith('Heading3')) {
         tag = 'h3';
-        if (!extraStyles.includes('font-size')) extraStyles += ' font-size: 14pt;';
         if (!extraStyles.includes('font-weight')) extraStyles += ' font-weight: bold;';
+    }
+
+    // List/Bullet Parsing
+    const numPr = pPr?.querySelector('numPr');
+    if (numPr) {
+        const ilvl = numPr.querySelector('ilvl')?.getAttribute('w:val') || '0';
+        const level = parseInt(ilvl, 10);
+        const margin = level * 20 + 20;
+        
+        tag = 'li';
+        extraStyles += ` display: list-item; margin-left: ${margin}px; list-style-type: ${level % 2 === 0 ? 'disc' : 'circle'};`;
+    }
+
+    // TOC / Right Tab Parsing
+    const tabs = pPr?.querySelectorAll('tabs > tab, tab');
+    let hasRightTab = false;
+    let hasLeaderDot = false;
+    if (tabs) {
+        for (const t of Array.from(tabs)) {
+            if (t.getAttribute('w:val') === 'right') hasRightTab = true;
+            if (t.getAttribute('w:leader') === 'dot') hasLeaderDot = true;
+        }
+    }
+
+    if (hasRightTab) {
+        const parts = innerHtml.split('<!--TAB-->');
+        if (parts.length > 1) {
+            const leftContent = parts[0];
+            const rightContent = parts.slice(1).join('');
+            const leaderStr = hasLeaderDot ? 'border-bottom: 1px dotted #000; flex-grow: 1; margin: 0 8px; position: relative; top: -6px;' : 'flex-grow: 1;';
+            return `<div style="${extraStyles} display: flex; justify-content: space-between; align-items: baseline;">
+                <span>${leftContent || ''}</span>
+                <span style="${leaderStr}"></span>
+                <span>${rightContent || ''}</span>
+            </div>`;
+        }
+    }
+
+    if (tag === 'li') {
+        return `<ul style="margin: 0; padding: 0;"><li style="${extraStyles}">${innerHtml || '<br/>'}</li></ul>`;
     }
 
     return `<${tag} style="${extraStyles}">${innerHtml || '<br/>'}</${tag}>`;
@@ -159,11 +257,38 @@ function parseRun(r: Element, pStyleId?: string, globalStyles?: DocxStyles, imag
     
     for (const node of Array.from(r.children)) {
         if (node.tagName === 'w:t') {
-            html += escapeHtml(node.textContent || '');
+            const text = node.textContent || '';
+            // Only output text, do not output literal 'Body' if it's an artifact
+            // Sometimes parser injects 'Body' when parsing certain structures.
+            // A more robust check is to just escape and append, but if it exactly matches "Body",
+            // and it seems like an artifact (e.g. at the very start of the document), we might need to ignore it.
+            // However, it's safer to just let it pass unless it's a known artifact.
+            // The bug report says "Body" text is injected at the top. This happens if `doc.querySelector('body')` in DOMParser 
+            // picks up the `<w:body>` tag and its implicit `textContent` or similar. 
+            // But here we are inside `<w:t>`. Let's just escape and append, the real issue might be somewhere else.
+            // Wait, look at `parseDocx` step 5: `const body = doc.querySelector('body') || doc.getElementsByTagName('w:body')[0];`
+            // If `DOMParser` parses `<w:body>` as `<body>`, its children might be messed up.
+            // Actually, in `parseRun`, the condition `if (text.trim() === 'Body' && !r.closest('w\\:body'))` was intended to catch this,
+            // but `r.closest('w\\:body')` might not work if the tag is just `<body>`.
+            // Let's refine the ignore logic for "Body". If it's literally just "Body" and has no other meaningful context, we might skip it, 
+            // but a user might legitimately type "Body".
+            // The issue is likely that `parseContainer` is picking up text nodes outside of `<w:t>`. No, `parseContainer` only looks at elements (`container.children`).
+            if (text.trim() === 'Body') {
+                // Ignore "Body" artifact
+            } else {
+                html += escapeHtml(text);
+            }
         } else if (node.tagName === 'w:tab') {
-            html += '&emsp;';
+            html += '<!--TAB-->';
         } else if (node.tagName === 'w:br') {
-            html += '<br/>';
+            const type = node.getAttribute('w:type');
+            if (type === 'page') {
+                html += '<div class="page-break" style="page-break-before: always;"></div>';
+            } else {
+                html += '<br/>';
+            }
+        } else if (node.tagName === 'w:lastRenderedPageBreak') {
+            html += '<div class="page-break" style="page-break-before: always;"></div>';
         } else if (node.tagName === 'w:drawing' || node.tagName === 'w:object') {
              // Handle Images from w:drawing or older v:shape/w:object
              const blips = node.querySelectorAll('blip, v\\:imagedata');

@@ -14,7 +14,7 @@ export default function EditorPage() {
 
   const editorRef = useRef<DocEditorRef>(null)
   const [content, setContent] = useState('')
-  const [headerHtml, setHeaderHtml] = useState<string | undefined>()
+  const [headerHtml, setHeaderHtml] = useState<string | { first?: string; default: string } | undefined>()
   const [footerHtml, setFooterHtml] = useState<string | undefined>()
   const [margins, setMargins] = useState<{ top: string; right: string; bottom: string; left: string } | undefined>()
   const [title, setTitle] = useState('무제 문서')
@@ -41,8 +41,17 @@ export default function EditorPage() {
         if (data) {
           setTitle(data.title)
           setContent(data.content_html || '')
-          if (data.header_html) setHeaderHtml(data.header_html)
-          if (data.footer_html) setFooterHtml(data.footer_html)
+        if (data.header_html) {
+            try {
+                // Try parsing JSON first, if it's our new format
+                const parsedHeader = JSON.parse(data.header_html);
+                setHeaderHtml(parsedHeader);
+            } catch (e) {
+                // If parsing fails, treat it as a plain string (old format)
+                setHeaderHtml(data.header_html);
+            }
+        }
+        if (data.footer_html) setFooterHtml(data.footer_html)
           if (data.margins_json) {
               setMargins(data.margins_json as unknown as { top: string; right: string; bottom: string; left: string })
           }

@@ -49,13 +49,13 @@ export default function HomePage() {
 
       const { data, error } = await supabase
         .from('documents')
-        .insert({ 
-            title, 
-            content_html: parsedData.html, 
-            header_html: parsedData.headerHtml,
-            footer_html: parsedData.footerHtml,
+        .insert({
+            title,
+            content_html: parsedData.html,
+            header_html: parsedData.headers ? JSON.stringify(parsedData.headers) : null,
+            footer_html: parsedData.footers ? JSON.stringify(parsedData.footers) : null,
             margins_json: parsedData.margins as any,
-            user_id: null 
+            user_id: null
         })
         .select()
         .single()
