@@ -14,6 +14,9 @@ export default function EditorPage() {
 
   const editorRef = useRef<DocEditorRef>(null)
   const [content, setContent] = useState('')
+  const [headerHtml, setHeaderHtml] = useState<string | undefined>()
+  const [footerHtml, setFooterHtml] = useState<string | undefined>()
+  const [margins, setMargins] = useState<{ top: string; right: string; bottom: string; left: string } | undefined>()
   const [title, setTitle] = useState('무제 문서')
   const [selectedHtml, setSelectedHtml] = useState('')
   const [selectedText, setSelectedText] = useState('')
@@ -38,6 +41,11 @@ export default function EditorPage() {
         if (data) {
           setTitle(data.title)
           setContent(data.content_html || '')
+          if (data.header_html) setHeaderHtml(data.header_html)
+          if (data.footer_html) setFooterHtml(data.footer_html)
+          if (data.margins_json) {
+              setMargins(data.margins_json as unknown as { top: string; right: string; bottom: string; left: string })
+          }
         }
       } catch (error) {
         console.error('Failed to fetch document:', error)
@@ -87,7 +95,10 @@ export default function EditorPage() {
             {!isInitializing && (
               <DocEditor 
                 ref={editorRef}
-                content={content} 
+                content={content}
+                headerHtml={headerHtml}
+                footerHtml={footerHtml}
+                margins={margins}
                 onChange={setContent} 
                 onSelection={handleSelection}
               />

@@ -44,12 +44,19 @@ export default function HomePage() {
 
     setIsUploading(true)
     try {
-      const htmlContent = await parseDocxToRetainedHtml(file)
+      const parsedData = await parseDocxToRetainedHtml(file)
       const title = file.name.replace(/\.docx$/i, '')
 
       const { data, error } = await supabase
         .from('documents')
-        .insert({ title, content_html: htmlContent, user_id: null })
+        .insert({ 
+            title, 
+            content_html: parsedData.html, 
+            header_html: parsedData.headerHtml,
+            footer_html: parsedData.footerHtml,
+            margins_json: parsedData.margins as any,
+            user_id: null 
+        })
         .select()
         .single()
 

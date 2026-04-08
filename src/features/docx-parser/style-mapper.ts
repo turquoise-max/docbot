@@ -1,101 +1,188 @@
 import { twipsToPt, halfPointsToPt, twipsToPx, parseUnit } from './unit-converter';
 
-export function mapRunProperties(rPr: Element | null): string {
-  if (!rPr) return '';
+export interface DocxStyles {
+  [styleId: string]: {
+    pPr?: string;
+    rPr?: string;
+    basedOn?: string;
+  };
+}
+
+export function mapRunProperties(rPr: Element | null, styleContext?: string, globalStyles?: DocxStyles): string {
+  if (!rPr && !styleContext && !globalStyles) return '';
   const styles: string[] = [];
 
-  // Bold
-  if (rPr.querySelector('b')) styles.push('font-weight: bold;');
-  if (rPr.querySelector('bCs')) styles.push('font-weight: bold;'); // Complex script bold
-
-  // Italic
-  if (rPr.querySelector('i')) styles.push('font-style: italic;');
-  if (rPr.querySelector('iCs')) styles.push('font-style: italic;');
-
-  // Underline
-  if (rPr.querySelector('u')) {
-    const val = rPr.querySelector('u')?.getAttribute('w:val');
-    if (val !== 'none') styles.push('text-decoration: underline;');
+  // Apply style context (e.g., from pStyle or rStyle)
+  if (styleContext && globalStyles && globalStyles[styleContext] && globalStyles[styleContext].rPr) {
+      styles.push(globalStyles[styleContext].rPr!);
   }
 
-  // Strike
-  if (rPr.querySelector('strike')) styles.push('text-decoration: line-through;');
-
-  // Size
-  const sz = rPr.querySelector('sz')?.getAttribute('w:val');
-  if (sz) styles.push(`font-size: ${halfPointsToPt(parseUnit(sz))}pt;`);
-
-  // Color
-  const color = rPr.querySelector('color')?.getAttribute('w:val');
-  if (color && color !== 'auto') styles.push(`color: #${color};`);
-
-  // Highlight
-  const highlight = rPr.querySelector('highlight')?.getAttribute('w:val');
-  if (highlight && highlight !== 'none') {
-      const colorMap: Record<string, string> = {
-          yellow: '#ffff00', green: '#00ff00', cyan: '#00ffff', magenta: '#ff00ff',
-          blue: '#0000ff', red: '#ff0000', darkBlue: '#000080', darkCyan: '#008080',
-          darkGreen: '#008000', darkMagenta: '#800080', darkRed: '#800000',
-          darkYellow: '#808000', darkGray: '#808080', lightGray: '#c0c0c0', black: '#000000'
-      };
-      if (colorMap[highlight]) {
-          styles.push(`background-color: ${colorMap[highlight]};`);
+  // Also resolve base styles recursively (simplified)
+  let currentStyleId = styleContext;
+  let safetyCounter = 0;
+  while (currentStyleId && globalStyles && globalStyles[currentStyleId] && globalStyles[currentStyleId].basedOn && safetyCounter < 5) {
+      currentStyleId = globalStyles[currentStyleId].basedOn;
+      if (currentStyleId && globalStyles[currentStyleId] && globalStyles[currentStyleId].rPr) {
+          // Push base styles to the beginning so direct properties override them
+          styles.unshift(globalStyles[currentStyleId].rPr!);
       }
+      safetyCounter++;
   }
-  
-  // Shading (background)
-  const shd = rPr.querySelector('shd')?.getAttribute('w:fill');
-  if (shd && shd !== 'auto') {
-      styles.push(`background-color: #${shd};`);
+
+  // Direct Run Properties override inherited styles
+  if (rPr) {
+    // Bold
+    const bNode = rPr.querySelector('b');
+    if (bNode) {
+        const val = bNode.getAttribute('w:val');
+        if (val !== 'false' && val !== '0') styles.push('font-weight: bold;');
+    }
+    const bCsNode = rPr.querySelector('bCs');
+    if (bCsNode) {
+        const val = bCsNode.getAttribute('w:val');
+        if (val !== 'false' && val !== '0') styles.push('font-weight: bold;');
+    }
+
+    // Italic
+    const iNode = rPr.querySelector('i');
+    if (iNode) {
+        const val = iNode.getAttribute('w:val');
+        if (val !== 'false' && val !== '0') styles.push('font-style: italic;');
+    }
+    const iCsNode = rPr.querySelector('iCs');
+    if (iCsNode) {
+        const val = iCsNode.getAttribute('w:val');
+        if (val !== 'false' && val !== '0') styles.push('font-style: italic;');
+    }
+
+    // Underline
+    const uNode = rPr.querySelector('u');
+    if (uNode) {
+      const val = uNode.getAttribute('w:val');
+      if (val && val !== 'none' && val !== 'false' && val !== '0') styles.push('text-decoration: underline;');
+    }
+
+    // Strike
+    const strikeNode = rPr.querySelector('strike');
+    if (strikeNode) {
+        const val = strikeNode.getAttribute('w:val');
+        if (val !== 'false' && val !== '0') {
+            // Check if there's already an underline, if so combine them
+            const hasUnderline = styles.some(s => s.startsWith('text-decoration: underline'));
+            if (hasUnderline) {
+                const idx = styles.findIndex(s => s.startsWith('text-decoration: underline'));
+                styles[idx] = 'text-decoration: underline line-through;';
+            } else {
+                styles.push('text-decoration: line-through;');
+            }
+        }
+    }
+
+    // Size
+    const sz = rPr.querySelector('sz')?.getAttribute('w:val');
+    if (sz) styles.push(`font-size: ${halfPointsToPt(parseUnit(sz))}pt;`);
+
+    // Color
+    const color = rPr.querySelector('color')?.getAttribute('w:val');
+    const themeColor = rPr.querySelector('color')?.getAttribute('w:themeColor');
+    
+    if (color && color !== 'auto') {
+        styles.push(`color: #${color};`);
+    } else if (themeColor) {
+        const mappedColor = mapThemeColor(themeColor);
+        if (mappedColor) styles.push(`color: ${mappedColor};`);
+    }
+
+    // Highlight
+    const highlight = rPr.querySelector('highlight')?.getAttribute('w:val');
+    if (highlight && highlight !== 'none') {
+        const colorMap: Record<string, string> = {
+            yellow: '#ffff00', green: '#00ff00', cyan: '#00ffff', magenta: '#ff00ff',
+            blue: '#0000ff', red: '#ff0000', darkBlue: '#000080', darkCyan: '#008080',
+            darkGreen: '#008000', darkMagenta: '#800080', darkRed: '#800000',
+            darkYellow: '#808000', darkGray: '#808080', lightGray: '#c0c0c0', black: '#000000'
+        };
+        if (colorMap[highlight]) {
+            styles.push(`background-color: ${colorMap[highlight]};`);
+        }
+    }
+    
+    // Shading (background)
+    const shd = rPr.querySelector('shd')?.getAttribute('w:fill');
+    if (shd && shd !== 'auto') {
+        styles.push(`background-color: #${shd};`);
+    }
   }
 
   return styles.join(' ');
 }
 
-export function mapParagraphProperties(pPr: Element | null): string {
-  if (!pPr) return '';
+export function mapParagraphProperties(pPr: Element | null, globalStyles?: DocxStyles): string {
+  if (!pPr && !globalStyles) return '';
   const styles: string[] = [];
 
-  // Alignment
-  const jc = pPr.querySelector('jc')?.getAttribute('w:val');
-  if (jc) {
-    if (jc === 'both') styles.push('text-align: justify;');
-    else if (jc === 'end' || jc === 'right') styles.push('text-align: right;');
-    else if (jc === 'center') styles.push('text-align: center;');
-    else styles.push(`text-align: left;`);
+  const pStyleId = pPr?.querySelector('pStyle')?.getAttribute('w:val');
+  
+  if (pStyleId && globalStyles && globalStyles[pStyleId]) {
+      if (globalStyles[pStyleId].pPr) {
+          styles.push(globalStyles[pStyleId].pPr!);
+      }
+      
+      // Resolve base styles recursively
+      let currentStyleId = pStyleId;
+      let safetyCounter = 0;
+      while (currentStyleId && globalStyles[currentStyleId] && globalStyles[currentStyleId].basedOn && safetyCounter < 5) {
+          currentStyleId = globalStyles[currentStyleId].basedOn!;
+          if (globalStyles[currentStyleId] && globalStyles[currentStyleId].pPr) {
+              styles.unshift(globalStyles[currentStyleId].pPr!);
+          }
+          safetyCounter++;
+      }
   }
 
-  // Spacing
-  const spacing = pPr.querySelector('spacing');
-  if (spacing) {
-    const before = spacing.getAttribute('w:before');
-    if (before) styles.push(`margin-top: ${twipsToPt(parseUnit(before))}pt;`);
-    
-    const after = spacing.getAttribute('w:after');
-    if (after) styles.push(`margin-bottom: ${twipsToPt(parseUnit(after))}pt;`);
-
-    const line = spacing.getAttribute('w:line');
-    const lineRule = spacing.getAttribute('w:lineRule');
-    if (line) {
-        if (lineRule === 'auto') {
-            styles.push(`line-height: ${(parseUnit(line) / 240).toFixed(2)};`);
-        } else {
-            styles.push(`line-height: ${twipsToPt(parseUnit(line))}pt;`);
-        }
+  // Direct Paragraph Properties override inherited
+  if (pPr) {
+    // Alignment
+    const jc = pPr.querySelector('jc')?.getAttribute('w:val');
+    if (jc) {
+      if (jc === 'both') styles.push('text-align: justify;');
+      else if (jc === 'end' || jc === 'right') styles.push('text-align: right;');
+      else if (jc === 'center') styles.push('text-align: center;');
+      else styles.push(`text-align: left;`);
     }
-  }
 
-  // Indentation
-  const ind = pPr.querySelector('ind');
-  if (ind) {
-      const left = ind.getAttribute('w:left');
-      if (left) styles.push(`margin-left: ${twipsToPt(parseUnit(left))}pt;`);
+    // Spacing
+    const spacing = pPr.querySelector('spacing');
+    if (spacing) {
+      const before = spacing.getAttribute('w:before');
+      if (before) styles.push(`margin-top: ${twipsToPt(parseUnit(before))}pt;`);
       
-      const right = ind.getAttribute('w:right');
-      if (right) styles.push(`margin-right: ${twipsToPt(parseUnit(right))}pt;`);
-      
-      const firstLine = ind.getAttribute('w:firstLine');
-      if (firstLine) styles.push(`text-indent: ${twipsToPt(parseUnit(firstLine))}pt;`);
+      const after = spacing.getAttribute('w:after');
+      if (after) styles.push(`margin-bottom: ${twipsToPt(parseUnit(after))}pt;`);
+
+      const line = spacing.getAttribute('w:line');
+      const lineRule = spacing.getAttribute('w:lineRule');
+      if (line) {
+          if (lineRule === 'auto') {
+              styles.push(`line-height: ${(parseUnit(line) / 240).toFixed(2)};`);
+          } else {
+              styles.push(`line-height: ${twipsToPt(parseUnit(line))}pt;`);
+          }
+      }
+    }
+
+    // Indentation
+    const ind = pPr.querySelector('ind');
+    if (ind) {
+        const left = ind.getAttribute('w:left');
+        if (left) styles.push(`margin-left: ${twipsToPt(parseUnit(left))}pt;`);
+        
+        const right = ind.getAttribute('w:right');
+        if (right) styles.push(`margin-right: ${twipsToPt(parseUnit(right))}pt;`);
+        
+        const firstLine = ind.getAttribute('w:firstLine');
+        if (firstLine) styles.push(`text-indent: ${twipsToPt(parseUnit(firstLine))}pt;`);
+    }
   }
 
   return styles.join(' ');
@@ -212,4 +299,45 @@ export function extractPageMargins(sectPr: Element | null): { top: string, right
         };
     }
     return defaultMargins;
+}
+
+export function parseStylesXml(doc: Document): DocxStyles {
+    const styles: DocxStyles = {};
+    const styleElements = doc.querySelectorAll('style');
+    
+    styleElements.forEach(style => {
+        const styleId = style.getAttribute('w:styleId');
+        if (!styleId) return;
+
+        const pPr = style.querySelector('pPr');
+        const rPr = style.querySelector('rPr');
+        const basedOn = style.querySelector('basedOn')?.getAttribute('w:val') || undefined;
+
+        styles[styleId] = {
+            pPr: mapParagraphProperties(pPr),
+            rPr: mapRunProperties(rPr),
+            basedOn
+        };
+    });
+
+    return styles;
+}
+
+export function mapThemeColor(themeColor: string): string | null {
+    // A simplified map of common theme colors to hex codes
+    const themeMap: Record<string, string> = {
+        'accent1': '#4F81BD',
+        'accent2': '#C0504D',
+        'accent3': '#9BBB59',
+        'accent4': '#8064A2',
+        'accent5': '#4BACC6',
+        'accent6': '#F79646',
+        'dark1': '#000000',
+        'light1': '#FFFFFF',
+        'dark2': '#1F497D',
+        'light2': '#EEECE1',
+        'hyperlink': '#0000FF',
+        'followedHyperlink': '#800080',
+    };
+    return themeMap[themeColor] || null;
 }

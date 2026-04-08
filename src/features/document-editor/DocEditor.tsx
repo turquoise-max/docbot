@@ -16,10 +16,12 @@ export interface DocEditorProps {
   onChange: (content: string) => void;
   onSelection?: (html: string, text: string) => void;
   margins?: { top: string; right: string; bottom: string; left: string };
+  headerHtml?: string;
+  footerHtml?: string;
 }
 
 export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
-  ({ content, onChange, onSelection, margins }, ref) => {
+  ({ content, onChange, onSelection, margins, headerHtml, footerHtml }, ref) => {
     const editorRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef(content);
 
@@ -98,7 +100,7 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
       <div className="flex flex-col h-full w-full bg-[#f0f0f0]">
         <Toolbar />
         <div className="flex-1 overflow-y-auto">
-          <PageLayout margins={margins}>
+          <PageLayout margins={margins} headerHtml={headerHtml} footerHtml={footerHtml}>
             <div
               ref={editorRef}
               contentEditable
@@ -106,10 +108,16 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
               onMouseUp={handleSelect}
               onKeyUp={handleSelect}
               dangerouslySetInnerHTML={{ __html: content }}
-              className="outline-none min-h-full w-full"
+              className="outline-none h-full w-full"
               style={{
                 margin: 0,
                 padding: 0,
+                minHeight: '100%',
+                // Added baseline typography matching word defaults more closely
+                fontFamily: '"Malgun Gothic", "맑은 고딕", sans-serif',
+                fontSize: '11pt',
+                lineHeight: '1.6', // Improved readability matching Google Docs
+                color: '#000000'
               }}
             />
           </PageLayout>

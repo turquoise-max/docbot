@@ -42,6 +42,9 @@ export interface Database {
           status: string | null
           current_version: number | null
           content_html: string | null
+          header_html: string | null
+          footer_html: string | null
+          margins_json: Json | null
           created_at: string
           updated_at: string
         }
@@ -54,6 +57,9 @@ export interface Database {
           status?: string | null
           current_version?: number | null
           content_html?: string | null
+          header_html?: string | null
+          footer_html?: string | null
+          margins_json?: Json | null
           created_at?: string
           updated_at?: string
         }
@@ -66,6 +72,9 @@ export interface Database {
           status?: string | null
           current_version?: number | null
           content_html?: string | null
+          header_html?: string | null
+          footer_html?: string | null
+          margins_json?: Json | null
           created_at?: string
           updated_at?: string
         }
