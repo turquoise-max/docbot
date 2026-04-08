@@ -31,54 +31,74 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0) return null;
       const range = selection.getRangeAt(0);
-      const preSelectionRange = range.cloneRange();
-      preSelectionRange.selectNodeContents(containerEl);
-      preSelectionRange.setEnd(range.startContainer, range.startOffset);
-      const start = preSelectionRange.toString().length;
+
+      const getNodePath = (node: Node, container: HTMLElement) => {
+        const path: number[] = [];
+        let current = node;
+        while (current && current !== container && current.parentNode) {
+          let index = 0;
+          let prev = current.previousSibling;
+          while (prev) {
+            index++;
+            prev = prev.previousSibling;
+          }
+          path.unshift(index);
+          current = current.parentNode;
+        }
+        return path;
+      };
 
       return {
-        start,
-        end: start + range.toString().length
+        startPath: getNodePath(range.startContainer, containerEl),
+        startOffset: range.startOffset,
+        endPath: getNodePath(range.endContainer, containerEl),
+        endOffset: range.endOffset,
       };
     };
 
     const restoreSelection = (containerEl: HTMLElement, savedSel: any) => {
       if (!savedSel) return;
-      let charIndex = 0, range = document.createRange();
-      range.setStart(containerEl, 0);
-      range.collapse(true);
-      let nodeStack: Node[] = [containerEl], node, foundStart = false, stop = false;
 
-      while (!stop && (node = nodeStack.pop())) {
-        if (node.nodeType === 3) {
-          const textNode = node as Text;
-          const nextCharIndex = charIndex + textNode.length;
-          if (!foundStart && savedSel.start >= charIndex && savedSel.start <= nextCharIndex) {
-            range.setStart(textNode, savedSel.start - charIndex);
-            foundStart = true;
+      const getNodeByPath = (container: HTMLElement, path: number[]) => {
+        let current: Node = container;
+        for (let i = 0; i < path.length; i++) {
+          if (!current.childNodes || current.childNodes.length === 0) {
+            return current;
           }
-          if (foundStart && savedSel.end >= charIndex && savedSel.end <= nextCharIndex) {
-            range.setEnd(textNode, savedSel.end - charIndex);
-            stop = true;
-          }
-          charIndex = nextCharIndex;
-        } else {
-          let i = node.childNodes.length;
-          while (i--) {
-            nodeStack.push(node.childNodes[i]);
-          }
+          const index = Math.min(path[i], current.childNodes.length - 1);
+          current = current.childNodes[index];
         }
-      }
+        return current;
+      };
 
-      const sel = window.getSelection();
-      if (sel) {
-        sel.removeAllRanges();
-        sel.addRange(range);
+      try {
+        const startNode = getNodeByPath(containerEl, savedSel.startPath);
+        const endNode = getNodeByPath(containerEl, savedSel.endPath);
+
+        const range = document.createRange();
         
-        // Ensure the restored selection is visible
-        if (range.startContainer && range.startContainer.parentElement) {
-          range.startContainer.parentElement.scrollIntoView({ block: 'nearest' });
+        const getValidOffset = (node: Node, offset: number) => {
+          if (node.nodeType === Node.TEXT_NODE) {
+            return Math.min(offset, (node as Text).length);
+          }
+          return Math.min(offset, node.childNodes.length);
+        };
+
+        range.setStart(startNode, getValidOffset(startNode, savedSel.startOffset));
+        range.setEnd(endNode, getValidOffset(endNode, savedSel.endOffset));
+
+        const sel = window.getSelection();
+        if (sel) {
+          sel.removeAllRanges();
+          sel.addRange(range);
+          
+          // Ensure the restored selection is visible
+          if (range.startContainer && range.startContainer.parentElement) {
+            range.startContainer.parentElement.scrollIntoView({ block: 'nearest' });
+          }
         }
+      } catch (e) {
+        console.error('Failed to restore selection:', e);
       }
     };
 
