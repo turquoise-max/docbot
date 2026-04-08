@@ -57,17 +57,23 @@ export async function parseDocx(buffer: ArrayBuffer): Promise<ParseResult> {
   // 4. Parse Header/Footer
   const sectPrs = doc.getElementsByTagName('w:sectPr');
   const sectPr = sectPrs.length > 0 ? sectPrs[sectPrs.length - 1] : null;
-  const hasTitlePg = sectPr ? sectPr.getElementsByTagName('w:titlePg').length > 0 : false;
+  
+  // 1. TitlePg 추출
+  const hasTitlePg = /<w:titlePg\b/i.test(documentXmlString);
   
   const headers: { first?: string; default?: string } = {};
   const footers: { first?: string; default?: string } = {};
 
-  const headerRefs = sectPr ? Array.from(sectPr.getElementsByTagName('w:headerReference')) : [];
+  // 2. Header 추출
+  const headerRefs = Array.from(documentXmlString.matchAll(/<w:headerReference[^>]+>/g));
   if (headerRefs.length > 0) {
-      for (const ref of headerRefs) {
-          const type = ref.getAttribute('w:type');
-          const rId = ref.getAttribute('r:id');
-          if (rId && relMap[rId]) {
+      for (const match of headerRefs) {
+          const tagStr = match[0];
+          const typeMatch = tagStr.match(/w:type="([^"]+)"/);
+          const idMatch = tagStr.match(/r:id="([^"]+)"/);
+          if (typeMatch && idMatch && relMap[idMatch[1]]) {
+              const type = typeMatch[1];
+              const rId = idMatch[1];
               const target = relMap[rId];
               const headerXmlString = await zip.file(`word/${target}`)?.async('string');
               if (headerXmlString) {
@@ -90,12 +96,16 @@ export async function parseDocx(buffer: ArrayBuffer): Promise<ParseResult> {
       }
   }
 
-  const footerRefs = sectPr ? Array.from(sectPr.getElementsByTagName('w:footerReference')) : [];
+  // 3. Footer 추출
+  const footerRefs = Array.from(documentXmlString.matchAll(/<w:footerReference[^>]+>/g));
   if (footerRefs.length > 0) {
-      for (const ref of footerRefs) {
-          const type = ref.getAttribute('w:type');
-          const rId = ref.getAttribute('r:id');
-          if (rId && relMap[rId]) {
+      for (const match of footerRefs) {
+          const tagStr = match[0];
+          const typeMatch = tagStr.match(/w:type="([^"]+)"/);
+          const idMatch = tagStr.match(/r:id="([^"]+)"/);
+          if (typeMatch && idMatch && relMap[idMatch[1]]) {
+              const type = typeMatch[1];
+              const rId = idMatch[1];
               const target = relMap[rId];
               const footerXmlString = await zip.file(`word/${target}`)?.async('string');
               if (footerXmlString) {
@@ -123,13 +133,9 @@ export async function parseDocx(buffer: ArrayBuffer): Promise<ParseResult> {
   const body = doc.querySelector('body') || doc.getElementsByTagName('w:body')[0];
   
   if (body) {
-      // Create a filtered body that excludes header/footer references if needed,
-      // but usually parseContainer already ignores header/footer nodes because it looks for w:p, w:tbl, w:sdt.
-      // However, sometimes headers leak through sectPr or other tags inside body.
-      // We explicitly parse only the direct children that are content.
       for (const node of Array.from(body.children)) {
-          // Ignore sectPr to prevent header/footer leakage into main content
-          if (node.tagName === 'w:sectPr' || node.tagName === 'sectPr') continue;
+          // sectPr 및 관련 메타 데이터가 본문에 포함되지 않도록 강력 차단
+          if (node.localName === 'sectPr' || node.tagName.includes('sectPr')) continue;
 
           if (node.tagName === 'w:p') {
               html += parseParagraph(node, globalStyles, images);
@@ -157,12 +163,14 @@ export async function parseDocx(buffer: ArrayBuffer): Promise<ParseResult> {
 function parseContainer(container: Element, globalStyles: DocxStyles, images: Record<string, string>): string {
     let html = '';
     for (const node of Array.from(container.children)) {
+        // sectPr 등 불필요한 메타 태그 무시
+        if (node.localName === 'sectPr' || node.tagName.includes('sectPr')) continue;
+
         if (node.tagName === 'w:p') {
             html += parseParagraph(node, globalStyles, images);
         } else if (node.tagName === 'w:tbl') {
             html += parseTable(node, globalStyles, images);
         } else if (node.tagName === 'w:sdt') {
-            // Content controls (sometimes contain paragraphs)
             const sdtContent = node.querySelector('sdtContent');
             if (sdtContent) {
                  html += parseContainer(sdtContent, globalStyles, images);
@@ -195,16 +203,12 @@ function parseParagraph(p: Element, globalStyles: DocxStyles, images: Record<str
     
     if (pStyleId === 'Title') {
         tag = 'h1';
-        if (!extraStyles.includes('font-weight')) extraStyles += ' font-weight: bold;';
     } else if (pStyleId?.startsWith('Heading1')) {
         tag = 'h1';
-        if (!extraStyles.includes('font-weight')) extraStyles += ' font-weight: bold;';
     } else if (pStyleId?.startsWith('Heading2')) {
         tag = 'h2';
-        if (!extraStyles.includes('font-weight')) extraStyles += ' font-weight: bold;';
     } else if (pStyleId?.startsWith('Heading3')) {
         tag = 'h3';
-        if (!extraStyles.includes('font-weight')) extraStyles += ' font-weight: bold;';
     }
 
     // List/Bullet Parsing
@@ -215,7 +219,7 @@ function parseParagraph(p: Element, globalStyles: DocxStyles, images: Record<str
         const margin = level * 20 + 20;
         
         tag = 'li';
-        extraStyles += ` display: list-item; margin-left: ${margin}px; list-style-type: ${level % 2 === 0 ? 'disc' : 'circle'};`;
+        extraStyles += ` display: list-item; margin-left: ${margin}px; padding-left: 8px; list-style-type: ${level % 2 === 0 ? 'disc' : 'circle'};`;
     }
 
     // TOC / Right Tab Parsing
@@ -234,7 +238,7 @@ function parseParagraph(p: Element, globalStyles: DocxStyles, images: Record<str
         if (parts.length > 1) {
             const leftContent = parts[0];
             const rightContent = parts.slice(1).join('');
-            const leaderStr = hasLeaderDot ? 'border-bottom: 1px dotted #000; flex-grow: 1; margin: 0 8px; position: relative; top: -6px;' : 'flex-grow: 1;';
+            const leaderStr = hasLeaderDot ? 'border-bottom: 1px dotted #ccc; flex-grow: 1; margin: 0 8px; position: relative; top: -4px;' : 'flex-grow: 1;';
             return `<div style="${extraStyles} display: flex; justify-content: space-between; align-items: baseline;">
                 <span>${leftContent || ''}</span>
                 <span style="${leaderStr}"></span>
@@ -253,6 +257,13 @@ function parseParagraph(p: Element, globalStyles: DocxStyles, images: Record<str
 function parseRun(r: Element, pStyleId?: string, globalStyles?: DocxStyles, images?: Record<string, string>): string {
     const rPr = r.querySelector('rPr');
     const styles = mapRunProperties(rPr, pStyleId, globalStyles);
+    
+    // Check if parent is hyperlink to apply default link styling
+    let finalStyles = styles;
+    if (r.parentElement?.tagName === 'w:hyperlink') {
+        finalStyles += ' text-decoration: none; color: inherit;';
+    }
+
     let html = '';
     
     for (const node of Array.from(r.children)) {
@@ -338,8 +349,8 @@ function parseRun(r: Element, pStyleId?: string, globalStyles?: DocxStyles, imag
     
     if (!html) return '';
     
-    if (styles) {
-        return `<span style="${styles}">${html}</span>`;
+    if (finalStyles) {
+        return `<span style="${finalStyles}">${html}</span>`;
     }
     return html;
 }

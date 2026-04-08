@@ -18,13 +18,14 @@ export interface DocEditorProps {
   margins?: { top: string; right: string; bottom: string; left: string };
   headerHtml?: string | { first?: string; default?: string };
   footerHtml?: string | { first?: string; default?: string };
+  hasTitlePg?: boolean;
 }
 
 export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
-  ({ content, onChange, onSelection, margins, headerHtml, footerHtml }, ref) => {
+  ({ content, onChange, onSelection, margins, headerHtml, footerHtml, hasTitlePg }, ref) => {
     const editorRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef(content);
-    const initialContent = useRef(content);
+    const isInitialized = useRef(false);
 
     const saveSelection = (containerEl: HTMLElement) => {
       const selection = window.getSelection();
@@ -81,32 +82,21 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
       }
     };
 
-    const isTypingRef = useRef(false);
-
     useEffect(() => {
-      if (editorRef.current && content !== contentRef.current) {
-        // If the user is currently typing in the editor, NEVER overwrite innerHTML
-        // as this will destroy the browser's native caret and node references.
-        if (isTypingRef.current) {
-            contentRef.current = content;
-            return;
-        }
+      if (!editorRef.current) return;
+      
+      // 1. 최초 마운트 시 HTML 주입
+      if (!isInitialized.current) {
+        editorRef.current.innerHTML = content;
+        isInitialized.current = true;
+        contentRef.current = content;
+        return;
+      }
 
-        // Only update if it's actually different
-        if (editorRef.current.innerHTML !== content) {
-          const isFocused = document.activeElement === editorRef.current;
-          const savedSel = isFocused ? saveSelection(editorRef.current) : null;
-          
-          editorRef.current.innerHTML = content;
-          
-          if (savedSel && isFocused) {
-            setTimeout(() => {
-                if (editorRef.current) {
-                    restoreSelection(editorRef.current, savedSel);
-                }
-            }, 0);
-          }
-        }
+      // 2. 외부에서 content가 변경되었을 때 (AI 챗봇 적용 등)
+      // 단, 현재 사용자가 에디터에 포커스(타이핑) 중일 때는 절대 덮어쓰지 않음
+      if (editorRef.current.innerHTML !== content && document.activeElement !== editorRef.current) {
+        editorRef.current.innerHTML = content;
         contentRef.current = content;
       }
     }, [content]);
@@ -201,7 +191,7 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
           calculatePageBreaks();
-        }, 300); // Debounce to prevent lag
+        }, 300);
       });
 
       if (editorRef.current) {
@@ -210,8 +200,7 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
           subtree: true,
           characterData: true
         });
-        // Initial calculation
-        setTimeout(calculatePageBreaks, 100);
+        calculatePageBreaks();
       }
 
       return () => {
@@ -265,15 +254,7 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
 
     const handleInput = () => {
       if (editorRef.current) {
-        isTypingRef.current = true;
-        const newHtml = editorRef.current.innerHTML;
-        contentRef.current = newHtml;
-        onChange(newHtml);
-        
-        // Reset typing flag after a short delay so external updates can apply if they aren't from typing
-        setTimeout(() => {
-          isTypingRef.current = false;
-        }, 100);
+        onChange(editorRef.current.innerHTML);
       }
     };
 
@@ -294,14 +275,14 @@ export const DocEditor = forwardRef<DocEditorRef, DocEditorProps>(
       <div className="flex flex-col h-full w-full bg-[#f0f0f0]">
         <Toolbar />
         <div className="flex-1 overflow-y-auto">
-          <PageLayout margins={margins} headerHtml={headerHtml as any} footerHtml={footerHtml as any}>
+          <PageLayout margins={margins} headerHtml={headerHtml as any} footerHtml={footerHtml as any} hasTitlePg={hasTitlePg}>
             <div
               ref={editorRef}
               contentEditable
+              suppressContentEditableWarning={true}
               onInput={handleInput}
               onMouseUp={handleSelect}
               onKeyUp={handleSelect}
-              dangerouslySetInnerHTML={{ __html: initialContent.current }}
               className="outline-none h-full w-full"
               style={{
                 margin: 0,

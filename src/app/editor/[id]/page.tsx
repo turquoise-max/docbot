@@ -20,6 +20,7 @@ export default function EditorPage() {
   const [title, setTitle] = useState('무제 문서')
   const [selectedHtml, setSelectedHtml] = useState('')
   const [selectedText, setSelectedText] = useState('')
+  const [hasTitlePg, setHasTitlePg] = useState(false)
   const [isInitializing, setIsInitializing] = useState(true)
 
   useEffect(() => {
@@ -54,6 +55,9 @@ export default function EditorPage() {
         if (data.footer_html) setFooterHtml(data.footer_html)
           if (data.margins_json) {
               setMargins(data.margins_json as unknown as { top: string; right: string; bottom: string; left: string })
+          }
+          if (data.has_title_pg !== undefined) {
+              setHasTitlePg(data.has_title_pg)
           }
         }
       } catch (error) {
@@ -110,6 +114,7 @@ export default function EditorPage() {
                 margins={margins}
                 onChange={setContent} 
                 onSelection={handleSelection}
+                hasTitlePg={hasTitlePg}
               />
             )}
           </div>

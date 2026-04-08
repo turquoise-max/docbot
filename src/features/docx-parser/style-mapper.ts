@@ -110,7 +110,7 @@ export function mapRunProperties(rPr: Element | null, styleContext?: string, glo
     // Shading (background)
     const shd = rPr.querySelector('shd')?.getAttribute('w:fill');
     if (shd && shd !== 'auto') {
-        styles.push(`background-color: #${shd};`);
+        styles.push(`background-color: #${shd}; border-radius: 4px; padding: 2px 4px;`);
     }
   }
 
