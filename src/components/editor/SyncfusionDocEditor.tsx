@@ -1,6 +1,6 @@
 'use client';
 
-import React, { forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
+import React, { forwardRef, useImperativeHandle, useRef, useCallback } from 'react';
 import {
   DocumentEditorContainerComponent,
   Toolbar,
@@ -111,7 +111,7 @@ export interface SyncfusionDocEditorRef {
 }
 
 interface SyncfusionDocEditorProps {
-  onSelectionChange?: (html: string, text: string) => void;
+  onSelectionChange?: (selectedHtml: string, selectedText: string) => void;
   onContentChange?: (text: string) => void;
 }
 
@@ -119,28 +119,39 @@ const SyncfusionDocEditor = forwardRef<SyncfusionDocEditorRef, SyncfusionDocEdit
   (props, ref) => {
     const containerRef = useRef<DocumentEditorContainerComponent>(null);
 
-    const handleSelectionChange = () => {
+    // 선택 영역 변경 처리 (개선된 버전)
+    const handleSelectionChange = useCallback(() => {
       const editor = containerRef.current?.documentEditor;
-      if (!editor) return;
-      
-      if (props.onSelectionChange) {
-        // htmlContent를 우선적으로 가져오고, 텍스트는 태그를 제거하여 빠르고 안전하게 추출
-        const html = (editor.selection as any).htmlContent || '';
-        const text = html ? html.replace(/<[^>]*>?/gm, '') : ((editor.selection as any).text || '');
-        props.onSelectionChange(html, text);
-      }
-    };
+      if (!editor || !props.onSelectionChange) return;
 
-    const handleContentChange = () => {
-      const editor = containerRef.current?.documentEditor;
-      if (!editor) return;
-      
-      if (props.onContentChange) {
-        // @ts-ignore
-        const text = editor.text || '';
-        props.onContentChange(text);
+      const selection = editor.selection;
+      if (!selection) {
+        props.onSelectionChange('', '');
+        return;
       }
-    };
+
+      const isEmpty = selection.isEmpty ?? true;
+      const selectedText = selection.text?.trim() || '';
+
+      if (isEmpty || !selectedText) {
+        props.onSelectionChange('', '');
+        return;
+      }
+
+      // 선택된 HTML (완전한 HTML을 얻기 어려우므로 최소한의 markup 제공)
+      const selectedHtml = `<p>${selectedText.replace(/\n/g, '<br>')}</p>`;
+
+      props.onSelectionChange(selectedHtml, selectedText);
+    }, [props.onSelectionChange]);
+
+    const handleContentChange = useCallback(() => {
+      const editor = containerRef.current?.documentEditor;
+      if (!editor || !props.onContentChange) return;
+
+      // @ts-ignore
+      const fullText = editor.text || '';
+      props.onContentChange(fullText);
+    }, [props.onContentChange]);
 
     useImperativeHandle(ref, () => ({
       getText: () => {
@@ -149,57 +160,55 @@ const SyncfusionDocEditor = forwardRef<SyncfusionDocEditorRef, SyncfusionDocEdit
         // @ts-ignore
         return editor.text || '';
       },
+
       getSelectionText: () => {
         const editor = containerRef.current?.documentEditor;
         if (!editor) return '';
-        return editor.selection.text;
+        return editor.selection?.text || '';
       },
+
       replaceSelection: async (text: string) => {
         const editor = containerRef.current?.documentEditor;
         if (!editor) return;
-        
+
         try {
           const response = await fetch('/api/document/convert-html', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ html: text }),
           });
 
-          if (!response.ok) {
-            throw new Error('Failed to convert HTML to SFDT');
-          }
+          if (!response.ok) throw new Error('Conversion failed');
 
           const sfdt = await response.text();
-          
-          // 현재 선택 영역이 없다면 (커서만 있는 경우), 커서 위치에 삽입
+
           if (editor.selection.isEmpty) {
-             editor.editor.paste(sfdt);
+            editor.editor.paste(sfdt);
           } else {
-             // 선택 영역이 있다면 해당 영역을 덮어쓰기 위해 먼저 지우고 붙여넣기
-             editor.editor.delete();
-             editor.editor.paste(sfdt);
+            editor.editor.delete();
+            editor.editor.paste(sfdt);
           }
         } catch (error) {
-          console.error('Failed to convert HTML to SFDT, falling back to plain text:', error);
+          console.error('HTML to SFDT 변환 실패, 일반 텍스트로 fallback:', error);
           if (!editor.selection.isEmpty) {
-             editor.editor.delete();
+            editor.editor.delete();
           }
           editor.editor.insertText(text);
         }
       },
+
       loadDocument: (sfdt: string) => {
-         const editor = containerRef.current?.documentEditor;
-         if (editor && sfdt) {
-             editor.open(sfdt);
-         }
+        const editor = containerRef.current?.documentEditor;
+        if (editor && sfdt) {
+          editor.open(sfdt);
+        }
       },
+
       getSfdt: () => {
         const editor = containerRef.current?.documentEditor;
         if (!editor) return '';
         return editor.serialize();
-      }
+      },
     }));
 
     return (
@@ -207,8 +216,8 @@ const SyncfusionDocEditor = forwardRef<SyncfusionDocEditorRef, SyncfusionDocEdit
         <DocumentEditorContainerComponent
           id="container"
           ref={containerRef}
-          height={'100%'}
-          width={'100%'}
+          height="100%"
+          width="100%"
           style={{ display: 'block' }}
           enableToolbar={true}
           locale="ko"

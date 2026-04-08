@@ -7,6 +7,8 @@ import { Send, User, Bot, Check, X } from 'lucide-react'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import TocBuilder from '../template/TocBuilder'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -163,11 +165,19 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
                 {m.role === 'user' ? <User size={14} /> : <Bot size={14} />}
                 <span className="font-bold">{m.role === 'user' ? '나' : '문서봇'}</span>
               </div>
-              <div className="whitespace-pre-wrap leading-relaxed">
+              <div className={cn("whitespace-pre-wrap leading-relaxed", m.role !== 'user' && "prose prose-sm max-w-none")}>
                 {/* 최신 SDK 구조에 맞게 텍스트 파트 렌더링 */}
-                {m.parts 
-                  ? m.parts.filter((p) => p.type === 'text').map((p) => (p as {type: 'text'; text: string}).text).join('')
-                  : ('text' in m ? (m as {text: string}).text : ('content' in m ? (m as {content: string}).content : ''))}
+                {m.role === 'user' ? (
+                  m.parts 
+                    ? m.parts.filter((p) => p.type === 'text').map((p) => (p as {type: 'text'; text: string}).text).join('')
+                    : ('text' in m ? (m as {text: string}).text : ('content' in m ? (m as {content: string}).content : ''))
+                ) : (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {m.parts 
+                      ? m.parts.filter((p) => p.type === 'text').map((p) => (p as {type: 'text'; text: string}).text).join('')
+                      : ('text' in m ? (m as {text: string}).text : ('content' in m ? (m as {content: string}).content : ''))}
+                  </ReactMarkdown>
+                )}
               </div>
             </div>
 
@@ -211,6 +221,21 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
             })}
           </div>
         ))}
+        
+        {status === 'submitted' && (
+          <div className="flex flex-col gap-2 items-start">
+            <div className="max-w-[85%] p-3 rounded-lg text-sm shadow-sm bg-white text-gray-800 border">
+              <div className="flex items-center gap-2 mb-1 opacity-70">
+                <Bot size={14} />
+                <span className="font-bold">문서봇</span>
+              </div>
+              <div className="flex items-center gap-2 text-gray-500">
+                <span className="animate-pulse">AI가 생각 중...</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
