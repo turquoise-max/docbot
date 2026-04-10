@@ -25,9 +25,39 @@ interface ChatPanelProps {
   editorRef?: RefObject<SyncfusionDocEditorRef>
 }
 
-// 툴 UI 상태 관리를 위한 내부 컴포넌트 추가
-function UpdateEditorTool({ args, editorRef, onApplyEdit }: { args: { modifiedHtml: string }, editorRef?: RefObject<SyncfusionDocEditorRef>, onApplyEdit: (html: string) => void }) {
+// 툴 UI 상태 관리를 위한 내부 컴포넌트
+function UpdateEditorTool({ 
+  args, 
+  toolCallId, 
+  addToolResult, 
+  editorRef, 
+  onApplyEdit 
+}: { 
+  args: { modifiedHtml?: string }, 
+  toolCallId: string, 
+  addToolResult: any,
+  editorRef?: RefObject<SyncfusionDocEditorRef>, 
+  onApplyEdit: (html: string) => void 
+}) {
   const [status, setStatus] = useState<'pending' | 'applied' | 'rejected'>('pending');
+  const hasPreviewed = useRef(false);
+
+  useEffect(() => {
+    if (!args || !args.modifiedHtml) return;
+
+    if (status === 'pending' && !hasPreviewed.current && editorRef?.current) {
+      hasPreviewed.current = true;
+      editorRef.current.previewSelection(args.modifiedHtml);
+    }
+  }, [args?.modifiedHtml, editorRef, status]);
+
+  if (!args || !args.modifiedHtml) {
+    return (
+      <div className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
+        <p className="text-sm font-medium text-blue-600 animate-pulse">수정 내용을 생성하는 중입니다...</p>
+      </div>
+    );
+  }
 
   if (status === 'applied') {
     return (
@@ -39,28 +69,38 @@ function UpdateEditorTool({ args, editorRef, onApplyEdit }: { args: { modifiedHt
   }
 
   if (status === 'rejected') {
-    return null; // 거절 시 숨김 처리
+    return null; 
   }
 
   return (
     <div className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
-      <p className="text-xs font-bold text-blue-700 mb-2">AI가 수정한 내용을 적용할까요?</p>
+      <p className="text-sm font-bold text-blue-700 mb-3">AI가 수정한 내용을 적용할까요?</p>
+      
+      {/* ✨ 챗 패널 내부의 HTML 미리보기(dangerouslySetInnerHTML) 삭제됨 */}
+
       <div className="flex gap-2">
         <button 
-          onClick={async () => {
+          onClick={() => {
             if (editorRef?.current) {
-              await editorRef.current.replaceSelection(args.modifiedHtml);
+              editorRef.current.acceptPreview();
             } else {
-              onApplyEdit(args.modifiedHtml);
+              onApplyEdit(args.modifiedHtml!);
             }
             setStatus('applied');
+            addToolResult({ toolCallId, tool: 'updateEditor', result: '사용자가 수정 사항을 수락했습니다.', output: '사용자가 수정 사항을 수락했습니다.' });
           }}
           className="flex-1 flex items-center justify-center gap-1 bg-blue-600 text-white py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
         >
           <Check size={16} /> 수락
         </button>
         <button 
-          onClick={() => setStatus('rejected')}
+          onClick={() => {
+            if (editorRef?.current) {
+              editorRef.current.rejectPreview();
+            }
+            setStatus('rejected');
+            addToolResult({ toolCallId, tool: 'updateEditor', result: '사용자가 수정 사항을 거절했습니다.', output: '사용자가 수정 사항을 거절했습니다.' });
+          }}
           className="flex-1 flex items-center justify-center gap-1 bg-white border border-gray-200 text-gray-600 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
         >
           <X size={16} /> 거절
@@ -83,9 +123,16 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
   // 1. AI SDK v5.0+ 에 맞춰 input 상태를 직접 관리
   const [input, setInput] = useState('')
 
-  const { messages, sendMessage, status, stop } = useChat()
+  const { messages, sendMessage, status, stop, addToolResult } = useChat()
 
   const isStreaming = status === 'submitted' || status === 'streaming'
+
+ // ✨ 수정: 최신 AI SDK (UIMessage) 구조에 맞춰 parts 배열 안의 toolInvocation 상태를 검사합니다.
+  const hasPendingTool = messages.some((m: UIMessage) =>
+    m.parts?.some((part: any) => 
+      part.type === 'tool-invocation' && part.toolInvocation?.state !== 'result'
+    )
+  );
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value)
@@ -95,6 +142,12 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim() || isStreaming) return
+
+    // ✨ 추가: 보류 중인 툴이 있다면 전송을 막고 안내 알림 띄우기
+    if (hasPendingTool) {
+      alert("에디터에 제안된 수정 사항을 '수락' 또는 '거절'한 후 새로운 메시지를 보내주세요.");
+      return;
+    }
 
     const truncatedContext = editorContext && editorContext.length > 30000 
       ? editorContext.slice(0, 30000) + '\n...(중략)...' 
@@ -264,13 +317,14 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
 
               if (part.type === 'tool-updateEditor') {
                 const args = part.input as { modifiedHtml: string };
-                // 툴 호출 결과(적용됨/거절됨)를 로컬 상태나 sessionStorage 등으로 관리할 수도 있지만,
-                // 여기서는 간단히 DOM 속성을 활용하거나, 컴포넌트 내부에서 상태를 가질 수 있도록 하위 컴포넌트로 분리하는 것이 좋습니다.
-                // 편의상 인라인 컴포넌트로 처리
+                const toolCallId = (part as any).toolCallId || (part as any).toolInvocation?.toolCallId || `tool-${index}`;
+                
                 return (
                   <UpdateEditorTool
                     key={`tool-${index}`}
                     args={args}
+                    toolCallId={toolCallId}
+                    addToolResult={addToolResult}
                     editorRef={editorRef}
                     onApplyEdit={onApplyEdit}
                   />
@@ -309,7 +363,8 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
           />
           <button
             type="submit"
-            disabled={isStreaming || !input?.trim()}
+            // ✨ disabled 속성에 hasPendingTool 추가
+            disabled={isStreaming || !input?.trim() || hasPendingTool}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-600 disabled:text-gray-300 transition-colors"
           >
             <Send size={20} />

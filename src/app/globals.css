@@ -35,3 +35,10 @@ body {
     text-wrap: balance;
   }
 }
+
+/* AI 챗 패널과 중복되는 Syncfusion 내장 변경 내용 추적 패널 강제 숨김 */
+.e-de-rev-pane,
+.e-de-review-pane,
+.e-de-track-changes-pane {
+  display: none !important;
+}

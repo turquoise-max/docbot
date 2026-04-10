@@ -109,6 +109,9 @@ export interface SyncfusionDocEditorRef {
   replaceSelection: (text: string) => Promise<void>;
   loadDocument: (sfdt: string) => void;
   getSfdt: () => string;
+  previewSelection: (text: string) => Promise<void>;
+  acceptPreview: () => void;
+  rejectPreview: () => void;
 }
 
 interface SyncfusionDocEditorProps {
@@ -130,21 +133,22 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
       if (!editor || !props.onSelectionChange) return;
 
       const selection = editor.selection;
-      if (!selection) {
+      if (!selection || selection.isEmpty) {
         props.onSelectionChange('', '');
         return;
       }
 
-      const isEmpty = selection.isEmpty ?? true;
       const selectedText = selection.text?.trim() || '';
-
-      if (isEmpty || !selectedText) {
+      if (!selectedText) {
         props.onSelectionChange('', '');
         return;
       }
 
-      const selectedHtml = `<p>${selectedText.replace(/\n/g, '<br>')}</p>`;
-      props.onSelectionChange(selectedHtml, selectedText);
+      // ✨ HTML 대신, 선택된 영역의 모든 서식 구조가 담긴 SFDT(JSON 문자열)를 추출합니다.
+      const selectedSfdt = selection.sfdt;
+      
+      // 기존 onSelectionChange의 첫 번째 인자(selectedHtml) 자리에 selectedSfdt를 넘겨줍니다.
+      props.onSelectionChange(selectedSfdt, selectedText);
     }, [props.onSelectionChange]);
 
     const handleContentChange = useCallback(() => {
@@ -208,6 +212,65 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           }
           editor.editor.insertText(text);
         }
+      },
+
+      previewSelection: async (text: string) => {
+        const editor = containerRef.current?.documentEditor;
+        if (!editor) return;
+
+        try {
+          const response = await fetch('/api/document/convert-html', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ html: text }),
+          });
+
+          if (!response.ok) throw new Error('Conversion failed');
+          const sfdt = await response.text();
+
+          const originalUser = editor.currentUser;
+          
+          // 에디터의 '변경 내용 추적' 활성화
+          editor.enableTrackChanges = true;
+
+          // ✨ 1. 원본을 지울 때는 가상의 작성자 'Original Text'로 설정 (다른 색상 부여를 위함)
+          editor.currentUser = 'Original Text';
+          if (!editor.selection.isEmpty) {
+            editor.editor.delete(); // 이 시점에 원본은 첫 번째 색상(예: 빨간색)의 취소선으로 표시됨
+          }
+
+          // ✨ 2. 새 내용을 붙여넣을 때는 'AI Assistant'로 설정 (새로운 색상 부여)
+          editor.currentUser = 'AI Assistant';
+          editor.editor.paste(sfdt); // 이 시점에 새 내용은 두 번째 색상(예: 파란색)의 밑줄로 표시됨
+
+          // 원래 작성자로 복구
+          editor.currentUser = originalUser;
+          
+        } catch (error) {
+          console.error('미리보기 적용 실패:', error);
+        }
+      },
+
+      acceptPreview: () => {
+        const editor = containerRef.current?.documentEditor;
+        if (!editor) return;
+        
+        // 추적된 모든 변경 사항을 문서에 확정(수락)
+        if (editor.revisions && editor.revisions.length > 0) {
+          editor.revisions.acceptAll();
+        }
+        editor.enableTrackChanges = false; // 추적 모드 종료
+      },
+
+      rejectPreview: () => {
+        const editor = containerRef.current?.documentEditor;
+        if (!editor) return;
+        
+        // 추적된 모든 변경 사항을 원상 복구(거절)
+        if (editor.revisions && editor.revisions.length > 0) {
+          editor.revisions.rejectAll();
+        }
+        editor.enableTrackChanges = false; // 추적 모드 종료
       },
 
       loadDocument: (sfdt: string) => {
