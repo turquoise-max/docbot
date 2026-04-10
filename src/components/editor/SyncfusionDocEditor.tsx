@@ -1,6 +1,7 @@
 'use client';
 
-import React, { forwardRef, useImperativeHandle, useRef, useCallback } from 'react';
+// 1. React에서 memo를 추가로 불러옵니다.
+import React, { forwardRef, useImperativeHandle, useRef, useCallback, memo } from 'react';
 import {
   DocumentEditorContainerComponent,
   Toolbar,
@@ -115,11 +116,15 @@ interface SyncfusionDocEditorProps {
   onContentChange?: (text: string) => void;
 }
 
-const SyncfusionDocEditor = forwardRef<SyncfusionDocEditorRef, SyncfusionDocEditorProps>(
+// 2. 인라인 스타일 객체를 컴포넌트 외부로 분리합니다. 
+// (렌더링 시마다 새로운 객체가 생성되는 것을 방지하여 에디터 깜빡임을 막습니다)
+const containerStyle = { display: 'block' };
+
+// 3. forwardRef 컴포넌트를 memo()로 감싸줍니다.
+const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDocEditorProps>(
   (props, ref) => {
     const containerRef = useRef<DocumentEditorContainerComponent>(null);
 
-    // 선택 영역 변경 처리 (개선된 버전)
     const handleSelectionChange = useCallback(() => {
       const editor = containerRef.current?.documentEditor;
       if (!editor || !props.onSelectionChange) return;
@@ -138,9 +143,7 @@ const SyncfusionDocEditor = forwardRef<SyncfusionDocEditorRef, SyncfusionDocEdit
         return;
       }
 
-      // 선택된 HTML (완전한 HTML을 얻기 어려우므로 최소한의 markup 제공)
       const selectedHtml = `<p>${selectedText.replace(/\n/g, '<br>')}</p>`;
-
       props.onSelectionChange(selectedHtml, selectedText);
     }, [props.onSelectionChange]);
 
@@ -157,8 +160,18 @@ const SyncfusionDocEditor = forwardRef<SyncfusionDocEditorRef, SyncfusionDocEdit
       getText: () => {
         const editor = containerRef.current?.documentEditor;
         if (!editor) return '';
-        // @ts-ignore
-        return editor.text || '';
+        
+        // 주의: 이 방식은 에디터의 사용자 선택 영역을 강제로 이동시킵니다.
+        // AI가 문서 전체 텍스트를 읽어야 한다면 에디터의 내부 텍스트를 직접 추출하는 로직으로 
+        // 추후 개선하는 것을 추천해 드립니다.
+        const bookmarkName = 'temp_ai_selection';
+        const isSelectionEmpty = editor.selection.isEmpty;
+        
+        editor.selection.selectAll();
+        const text = editor.selection.text || '';
+        editor.selection.moveToDocumentStart();
+        
+        return text;
       },
 
       getSelectionText: () => {
@@ -218,7 +231,7 @@ const SyncfusionDocEditor = forwardRef<SyncfusionDocEditorRef, SyncfusionDocEdit
           ref={containerRef}
           height="100%"
           width="100%"
-          style={{ display: 'block' }}
+          style={containerStyle} // 4. 분리해 둔 스타일 객체를 할당합니다.
           enableToolbar={true}
           locale="ko"
           selectionChange={handleSelectionChange}
@@ -227,7 +240,7 @@ const SyncfusionDocEditor = forwardRef<SyncfusionDocEditorRef, SyncfusionDocEdit
       </div>
     );
   }
-);
+));
 
 SyncfusionDocEditor.displayName = 'SyncfusionDocEditor';
 

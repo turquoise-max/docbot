@@ -61,6 +61,13 @@ export default function EditorPage() {
                  setTimeout(() => {
                    if (editorRef.current) {
                      editorRef.current.loadDocument(sfdt);
+                     
+                     // 👇 문서 로드 후 초기 텍스트를 추출하여 AI에게 넘길 준비를 합니다.
+                     setTimeout(() => {
+                       const text = editorRef.current?.getText() || '';
+                       setContent(text);
+                       console.log("📄 에디터에서 추출된 텍스트 길이:", text.length);
+                     }, 1000);
                    }
                  }, 500);
               } else {

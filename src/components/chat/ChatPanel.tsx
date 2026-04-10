@@ -71,59 +71,66 @@ function UpdateEditorTool({ args, editorRef, onApplyEdit }: { args: { modifiedHt
 }
 
 export default function ChatPanel({ selectedHtml, selectedText, editorContext, onApplyEdit, editorRef }: ChatPanelProps) {
+  const INITIAL_PROMPT = '업로드된 문서의 구조와 핵심 내용을 분석해서 요약해줘. "[문서 구조 분석 브리핑]" 이라는 제목으로 시작하고, 앞으로 내가 질문하거나 수정을 요청할 때 이 전체 구조를 기억하고 문맥에 맞게 답변해줘.';
+
   const activePreviewIdRef = useRef<string | null>(null)
   const hasInitializedAnalyizeRef = useRef(false)
+
+  // 챗 패널 너비 상태 관리
+  const [width, setWidth] = useState(400)
+  const [isResizing, setIsResizing] = useState(false)
 
   // 1. AI SDK v5.0+ 에 맞춰 input 상태를 직접 관리
   const [input, setInput] = useState('')
 
-  // 2. useChat의 변경된 반환값 사용 (api 속성은 기본값이 /api/chat 이므로 생략)
   const { messages, sendMessage, status, stop } = useChat()
 
-  // 기존 isLoading과 isStreamingRef를 status 하나로 대체
   const isStreaming = status === 'submitted' || status === 'streaming'
 
-  // 3. 수동 input 변경 핸들러
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value)
   }
 
-  // 4. 수동 submit 핸들러 (append 대신 sendMessage 사용)
+  // 2. 수동 submit 핸들러 수정
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim() || isStreaming) return
 
+    const truncatedContext = editorContext && editorContext.length > 30000 
+      ? editorContext.slice(0, 30000) + '\n...(중략)...' 
+      : editorContext;
+
+    // text 대신 role과 content 형식의 메시지 객체를 전달합니다.
     sendMessage(
       { text: input },
       { 
-        // 최신 상태의 에디터 컨텍스트를 전송 시점에 body로 태워 보냅니다.
-        body: { selectedHtml, selectedText, editorContext } 
+        body: { selectedHtml, selectedText, editorContext: truncatedContext } 
       }
     )
     setInput('')
   }
 
+  // 3. 자동 브리핑 요청 로직 개선
   useEffect(() => {
-    const initialDataStr = sessionStorage.getItem('initialEditorContent')
-    if (initialDataStr && !hasInitializedAnalyizeRef.current) {
-      try {
-        const parsed = JSON.parse(initialDataStr)
-        if (parsed.type === 'html' && parsed.isDocxUpload) {
-          hasInitializedAnalyizeRef.current = true
-          
-          // 초기 브리핑 요청도 sendMessage로 변경
-          sendMessage(
-            { text: '업로드된 문서의 구조와 내용을 분석해서 요약해줘. "[문서 구조 분석 브리핑]" 이라는 제목으로 시작해.' },
-            { body: { selectedHtml, selectedText, editorContext } }
-          )
-          
-          sessionStorage.setItem('initialEditorContent', JSON.stringify({ ...parsed, isDocxUpload: false }))
-        }
-      } catch (e) {
-        // ignore
-      }
+    console.log("🤖 ChatPanel이 전달받은 문서 길이:", editorContext?.length);
+    // 문서가 비어있지 않고(10자 초과), 채팅 내역이 아직 없으며, 최초 1회일 때만 실행
+    if (editorContext && editorContext.trim().length > 10 && messages.length === 0 && !hasInitializedAnalyizeRef.current) {
+      console.log("🚀 AI 문서 분석 브리핑을 시작합니다!");
+      hasInitializedAnalyizeRef.current = true;
+      
+      const truncatedContext = editorContext.length > 30000 
+        ? editorContext.slice(0, 30000) + '\n...(중략)...' 
+        : editorContext;
+        
+      // AI에게 보내는 첫 브리핑 메시지
+      sendMessage(
+        { 
+          text: INITIAL_PROMPT 
+        },
+        { body: { selectedHtml, selectedText, editorContext: truncatedContext } }
+      )
     }
-  }, [sendMessage, selectedHtml, selectedText, editorContext])
+  }, [sendMessage, messages.length, selectedHtml, selectedText, editorContext])
 
   useEffect(() => {
     const handleReject = () => {
@@ -142,8 +149,43 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // 리사이징 이벤트 핸들러
+  useEffect(() => {
+    if (!isResizing) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = document.body.clientWidth - e.clientX
+      if (newWidth >= 300 && newWidth <= 800) {
+        setWidth(newWidth)
+      }
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+      document.body.style.userSelect = 'auto'
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    document.body.style.userSelect = 'none'
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.userSelect = 'auto'
+    }
+  }, [isResizing])
+
   return (
-    <div className="flex flex-col h-full border-l bg-gray-50 w-[400px]">
+    <div 
+      className="relative flex-shrink-0 flex flex-col h-full border-l bg-gray-50"
+      style={{ width: `${width}px` }}
+    >
+      <div 
+        className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 active:bg-blue-600 z-10 transition-colors"
+        onMouseDown={() => setIsResizing(true)}
+      />
+      
       <div className="p-4 border-b bg-white font-bold text-gray-700">
         AI 문서 도우미
         {selectedHtml && (
@@ -155,7 +197,20 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* 5. Message 타입을 UIMessage로 변경 */}
-        {messages.map((m: UIMessage) => (
+        {messages
+          .filter((m: UIMessage) => {
+            // 메시지의 텍스트 내용을 안전하게 추출해
+            const textContent = m.parts 
+              ? m.parts.filter((p) => p.type === 'text').map((p) => (p as any).text).join('')
+              : ('text' in m ? (m as any).text : ('content' in m ? (m as any).content : ''));
+            
+            // 🌟 핵심 로직: 유저가 보낸 메시지인데, 내용이 INITIAL_PROMPT와 같으면 화면에서 숨김(false)
+            if (m.role === 'user' && textContent === INITIAL_PROMPT) {
+              return false;
+            }
+            return true; // 나머지는 모두 화면에 그림
+          })
+          .map((m: UIMessage) => (
           <div key={m.id} className={cn("flex flex-col gap-2", m.role === 'user' ? "items-end" : "items-start")}>
             <div className={cn(
               "max-w-[85%] p-3 rounded-lg text-sm shadow-sm",
@@ -165,7 +220,12 @@ export default function ChatPanel({ selectedHtml, selectedText, editorContext, o
                 {m.role === 'user' ? <User size={14} /> : <Bot size={14} />}
                 <span className="font-bold">{m.role === 'user' ? '나' : '문서봇'}</span>
               </div>
-              <div className={cn("whitespace-pre-wrap leading-relaxed", m.role !== 'user' && "prose prose-sm max-w-none")}>
+              <div className={cn(
+                "text-sm leading-relaxed",
+                m.role === 'user' 
+                  ? "whitespace-pre-wrap"
+                  : "prose prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-li:my-0.5"
+              )}>
                 {/* 최신 SDK 구조에 맞게 텍스트 파트 렌더링 */}
                 {m.role === 'user' ? (
                   m.parts 
