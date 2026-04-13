@@ -1,5 +1,5 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
-import { streamText, tool, convertToModelMessages, stepCountIs } from 'ai'
+import { streamText, tool, convertToModelMessages, stepCountIs } from 'ai'  // ← stepCountIs 추가
 import { z } from 'zod'
 
 export const maxDuration = 30
@@ -9,76 +9,80 @@ const google = createGoogleGenerativeAI({
 })
 
 export async function POST(req: Request) {
-  // 1. 프론트엔드에서 보낸 문서 컨텍스트 데이터들을 추출합니다.
   const { messages, editorContext, selectedHtml, selectedText } = await req.json()
 
-// 2. 추출한 데이터를 AI가 읽을 수 있도록 시스템 프롬프트 안에 동적으로 삽입합니다.
-  const systemPrompt = `당신은 문서 작성 및 편집을 돕는 전문 AI 어시스턴트입니다.
-사용자가 작성 중인 문서의 전체 내용과 현재 드래그하여 선택한 영역이 아래에 제공됩니다.
+  const systemPrompt = `[역할]
+당신은 문서의 설득력을 극대화하는 전문 비즈니스 컨설턴트이자 인터뷰어입니다.
 
-=========================================
-[현재 작성 중인 문서 전체 내용]
-${editorContext ? editorContext : '아직 문서에 내용이 없습니다.'}
-=========================================
+[현재 문서 컨텍스트]
+- 전체 문서 내용: ${editorContext ? editorContext : '아직 내용이 없습니다.'}
+- 선택된 텍스트: ${selectedText ? selectedText : '없음'}
+- 선택된 영역 서식: ${selectedHtml ? selectedHtml : '없음'}
 
-[현재 사용자가 선택한 텍스트]
-${selectedText ? selectedText : '선택된 텍스트가 없습니다.'}
+[🚨 절대 준수 규칙]
+1. 정보가 부족하거나 수정 방향이 불분명 → **askClarification** 무조건 호출
+2. 목차/개요/구조 요청 → **generateToc** 무조건 호출
+3. "수정해줘", "작성해줘", "바꿔줘" 등 수정 요청 → **updateEditor** 무조건 호출
+4. 문서 전체에 대한 단순 분석/요약 브리핑 요청 → **일반 텍스트로 친절하게 답변**
 
-[현재 사용자가 선택한 영역의 서식 정보 (SFDT JSON 포맷)]
-${selectedHtml ? selectedHtml : '선택된 서식 정보가 없습니다.'}
+도구를 호출해야 하는 상황(1,2,3)에서는 절대 일반 텍스트로만 답변하지 마세요.
+도구를 호출한 후에만 필요 시 보조 텍스트를 사용하세요.`
 
-[컨텍스트 활용 및 구조 인지 규칙]
-1. 제공된 '[현재 작성 중인 문서 전체 내용]'을 면밀히 분석하여 문서의 전체적인 논리적 구조를 항상 기억하세요.
-2. '[현재 사용자가 선택한 텍스트]' 영역을 우선적으로 고려하되 전체 문맥과 자연스럽게 이어지도록 수정 방향을 제안하세요.
-
-[도구(Tool) 사용 규칙 - 매우 중요]
-당신은 다음 두 가지 도구를 사용할 수 있습니다. 상황에 맞게 반드시 도구를 호출하세요.
-1. updateEditor: 
-   - 사용자가 "선택한 부분 수정해줘", "이 문단을 ~게 바꿔줘" 등 수정을 요청한 경우 반드시 이 도구를 호출하세요.
-   - 텍스트로만 어떻게 수정할지 설명하지 말고, 수정된 최종 HTML 결과를 'modifiedHtml' 파라미터로 전달하세요.
-   - 🚨 [수정 범위 엄수]: 사용자가 선택한 부분에 대한 수정 결과만 반환하세요. 선택하지 않은 앞뒤의 제목이나 문맥을 임의로 생성하지 마세요.
-   - 🚨 [서식 및 들여쓰기 완벽 복원]: 제공된 '[현재 사용자가 선택한 영역의 서식 정보]'는 Syncfusion의 SFDT JSON 데이터입니다. 이 JSON을 분석하여 다음 지침을 반드시 따르세요.
-     1) 헤딩(styleName), 굵기(bold), 기울임(italic), 글자색 등 기본 스타일을 100% 동일하게 반영하세요.
-     2) 들여쓰기 복원: JSON 내 'paragraphFormat.leftIndent' 및 'firstLineIndent' 값을 확인하고, 값이 있다면 생성하는 HTML 태그(p, h1 등)에 style="margin-left: {값}pt;" 형태로 인라인 CSS를 적용하여 들여쓰기를 똑같이 맞추세요.
-     3) 리스트 계층 복원: 불렛이나 번호 매기기 리스트인 경우 'listFormat.listLevelNumber'를 확인하여, 깊이에 따라 <ul>이나 <ol> 태그를 올바르게 중첩(Nesting)해서 들여쓰기 계층이 절대 깨지지 않도록 하세요.
-2. generateToc: 
-   - 사용자가 "목차 만들어줘", "개요 짜줘"라고 요청한 경우 이 도구를 호출하세요.
-
-[응답 포맷 및 제한 사항]
-- 수정/적용 요청이 아닌 단순 질문인 경우, 도구를 사용하지 말고 일반 텍스트(마크다운)로 친절하게 답변하세요.`
-
-  const modelMessages = await convertToModelMessages(messages)
+  const modelMessages = await convertToModelMessages(messages, {
+    ignoreIncompleteToolCalls: true,
+  })
 
   const result = streamText({
     model: google('gemini-3-flash-preview'),
     system: systemPrompt,
     messages: modelMessages,
+
     tools: {
-      generateToc: tool({
-        description: '문서의 목차를 생성합니다. 제목과 하위 항목들을 포함해야 합니다.',
+      askClarification: tool({
+        description: '🚨 정보가 부족할 때 사용자에게 선택지를 제시',
         inputSchema: z.object({
-          title: z.string().describe('목차의 제목'),
+          question: z.string().describe('사용자에게 보여줄 질문'),
+          options: z.array(z.object({
+            label: z.string().describe('버튼 텍스트'),
+            value: z.string().describe('선택 시 전달될 값'),
+          })).describe('3~5개 옵션 추천'),
+          allowMultiple: z.boolean().optional().default(false),
+        }),
+      }),
+
+      generateToc: tool({
+        description: '🚨 목차/개요 요청 시 반드시 호출',
+        inputSchema: z.object({
+          title: z.string().describe('목차 제목'),
+          documentType: z.string().describe('문서 종류'),
           items: z.array(z.object({
             id: z.string(),
             level: z.number(),
-            text: z.string()
-          }))
-        })
+            text: z.string(),
+          })).describe('기본 목차 항목'),
+          recommendations: z.array(z.object({
+            id: z.string(),
+            text: z.string(),
+          })).describe('추천 항목'),
+        }),
       }),
+
       updateEditor: tool({
-        description: '에디터의 내용을 직접 수정하거나 교체합니다.',
+        description: '🚨 문서 수정 요청 시 반드시 호출',
         inputSchema: z.object({
-          modifiedHtml: z.string().describe('에디터에 적용될 최종 수정된 HTML 문자열')
-        })
-      })
+          modifiedHtml: z.string().describe('적용할 최종 HTML'),
+        }),
+      }),
     },
-    stopWhen: stepCountIs(2),
+
+    // ✅ maxSteps 대신 이걸 사용 (TypeScript 에러 해결)
+    stopWhen: stepCountIs(3),   // 최대 3단계 (tool call → result → final response)
   })
 
   return result.toUIMessageStreamResponse({
     onError: (error) => {
-      console.error('Stream error:', error);
-      return '죄송합니다. 처리 중 오류가 발생했습니다.';
-    }
-  });
+      console.error('Stream error:', error)
+      return '죄송합니다. 처리 중 오류가 발생했습니다. 다시 시도해주세요.'
+    },
+  })
 }

@@ -140,6 +140,7 @@ export interface SyncfusionDocEditorRef {
   previewSelection: (text: string) => Promise<void>;
   acceptPreview: () => void;
   rejectPreview: () => void;
+  exportAsDocx: (fileName: string) => void;
 }
 
 interface SyncfusionDocEditorProps {
@@ -312,6 +313,12 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         const editor = containerRef.current?.documentEditor;
         if (!editor) return '';
         return editor.serialize();
+      },
+
+      exportAsDocx: (fileName: string) => {
+        const editor = containerRef.current?.documentEditor;
+        if (!editor) return;
+        editor.save(fileName || '무제 문서', 'Docx');
       },
     }));
 
