@@ -29,17 +29,19 @@ interface ChatPanelProps {
 function UpdateEditorTool({ 
   args, 
   toolCallId, 
-  toolName,           // ← 추가
+  toolName,
   addToolOutput, 
   editorRef, 
-  onApplyEdit 
+  onApplyEdit,
+  triggerMessage
 }: { 
   args: { modifiedHtml?: string }
   toolCallId: string
-  toolName: string    // ← 추가
+  toolName: string
   addToolOutput: (options: any) => void
   editorRef?: RefObject<SyncfusionDocEditorRef>
   onApplyEdit: (html: string) => void 
+  triggerMessage: () => void
 }) {
   const [status, setStatus] = useState<'pending' | 'applied' | 'rejected'>('pending')
   const hasPreviewed = useRef(false)
@@ -81,10 +83,14 @@ function UpdateEditorTool({
             
             setStatus('applied')
             addToolOutput({
-              tool: toolName,                    // ← 필수
+              tool: toolName,
               toolCallId,
               output: '사용자가 수정 사항을 수락했습니다.'
             })
+            // 자동 후속 요청 트리거
+            setTimeout(() => {
+              triggerMessage()
+            }, 50)
           }}
           className="flex-1 flex items-center justify-center gap-1 bg-blue-600 text-white py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
         >
@@ -95,10 +101,14 @@ function UpdateEditorTool({
             if (editorRef?.current) editorRef.current.rejectPreview()
             setStatus('rejected')
             addToolOutput({
-              tool: toolName,                    // ← 필수
+              tool: toolName,
               toolCallId,
               output: '사용자가 수정 사항을 거절했습니다.'
             })
+            // 자동 후속 요청 트리거
+            setTimeout(() => {
+              triggerMessage()
+            }, 50)
           }}
           className="flex-1 flex items-center justify-center gap-1 bg-white border border-gray-200 text-gray-600 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
         >
@@ -154,11 +164,11 @@ export default function ChatPanel({
     }
   }, [isResizing])
 
-  const { 
-    messages, 
-    sendMessage, 
-    status, 
-    addToolOutput, 
+  const {
+    messages,
+    sendMessage,
+    status,
+    addToolOutput,
     setMessages,
     error,
   } = useChat({
@@ -168,6 +178,17 @@ export default function ChatPanel({
       console.error('Chat error:', err);
     }
   })
+
+  // 동적 컨텍스트를 포함하여 메시지를 재전송 (tool 결과 전송용)
+  const handleTriggerMessage = () => {
+    sendMessage(undefined, {
+      body: {
+        selectedHtml,
+        selectedText,
+        editorContext: truncatedContext,
+      },
+    })
+  }
 
   const isStreaming = status === 'submitted' || status === 'streaming'
 
@@ -187,16 +208,13 @@ export default function ChatPanel({
     e.preventDefault()
     if (!input.trim() || isStreaming || hasPendingTool) return
 
-    sendMessage(
-      { text: input },                    // ← 여기 수정 (text)
-      { 
-        body: { 
-          selectedHtml, 
-          selectedText, 
-          editorContext: truncatedContext 
-        } 
+    sendMessage({ text: input }, {
+      body: {
+        selectedHtml,
+        selectedText,
+        editorContext: truncatedContext,
       }
-    )
+    })
     setInput('')
   }
 
@@ -209,16 +227,13 @@ export default function ChatPanel({
     if (contextLength > 10) {
       // 텍스트가 10자 이상 들어왔을 때만 초기화 완료 처리!
       hasInitializedAnalyizeRef.current = true
-      sendMessage(
-        { text: INITIAL_PROMPT },         // ← 여기 수정 (text)
-        { 
-          body: { 
-            selectedHtml, 
-            selectedText, 
-            editorContext: truncatedContext 
-          } 
+      sendMessage({ text: INITIAL_PROMPT }, {
+        body: {
+          selectedHtml,
+          selectedText,
+          editorContext: truncatedContext,
         }
-      )
+      })
     } else {
       const timer = setTimeout(() => {
         if (!hasInitializedAnalyizeRef.current) {
@@ -318,15 +333,16 @@ export default function ChatPanel({
                         // ✅ SDK v6: part 객체에서 직접 데이터 추출 (toolInvocation 중첩 객체 없음)
                         const toolName = part.type.replace('tool-', '');
                         const toolCallId = part.toolCallId;
-                        const args = part.input; // v6에서는 args 대신 input에 파라미터가 들어옵니다.
+                        const args = part.input || part.args; // 버전에 따라 input 또는 args로 들어올 수 있음
 
                         if (toolName === 'generateToc') {
+                          if (!args || !args.title || !args.items) return null; // 스트리밍 중 방어 로직
                           return (
                             <TocBuilder
                               key={`${toolCallId}-${index}`}
                               title={args.title}
                               items={args.items}
-                              recommendations={args.recommendations}
+                              recommendations={args.recommendations || []}
                               onApply={(finalHtml: string) => {
                                 if (editorRef?.current) editorRef.current.replaceSelection(finalHtml);
                                 addToolOutput({
@@ -334,12 +350,17 @@ export default function ChatPanel({
                                   toolCallId,
                                   output: `${args.documentType || '문서'} 목차가 적용되었습니다.`
                                 });
+                                // 자동 후속 요청 트리거
+                                setTimeout(() => {
+                                  handleTriggerMessage()
+                                }, 50)
                               }}
                             />
                           );
                         }
 
                         if (toolName === 'updateEditor') {
+                          if (!args) return null; // 스트리밍 중 방어 로직
                           return (
                             <UpdateEditorTool
                               key={`${toolCallId}-${index}`}
@@ -349,11 +370,13 @@ export default function ChatPanel({
                               addToolOutput={addToolOutput}
                               editorRef={editorRef}
                               onApplyEdit={onApplyEdit}
+                              triggerMessage={handleTriggerMessage}
                             />
                           );
                         }
 
                         if (toolName === 'askClarification') {
+                          if (!args || !args.question || !args.options) return null; // 스트리밍 중 방어 로직
                           return (
                             <OptionPicker
                               key={`${toolCallId}-${index}`}
@@ -366,6 +389,10 @@ export default function ChatPanel({
                                   toolCallId,
                                   output: `사용자가 다음 옵션을 선택했습니다: ${value}`
                                 });
+                                // 자동 후속 요청 트리거
+                                setTimeout(() => {
+                                  handleTriggerMessage()
+                                }, 50)
                               }}
                             />
                           );
