@@ -1,4 +1,6 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
+import { createOpenAI } from '@ai-sdk/openai'
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { streamText, tool, convertToModelMessages } from 'ai'
 import { z } from 'zod'
 
@@ -8,11 +10,18 @@ const google = createGoogleGenerativeAI({
   apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY,
 })
 
+const litellm = createOpenAICompatible({
+  name: 'litellm',
+  baseURL: process.env.LITELLM_BASE_UR ?? 'https://litellm.must.codes',
+  apiKey: process.env.LITELLM_API_KEY ?? undefined,
+})
+
 export async function POST(req: Request) {
   const { messages, editorContext, selectedHtml, selectedText } = await req.json()
 
   const systemPrompt = `[역할]
-당신은 문서의 설득력을 극대화하는 전문 비즈니스 컨설턴트이자 능동형 AI 어시스턴트입니다.
+당신은 하버드 비즈니스 리뷰 수준의 통찰력을 가진 전문 비즈니스 작가이자 컨설턴트입니다. 
+당신은 단순히 문서를 "정리"하는 것이 아니라, 사용자의 최소한의 입력만으로도 완벽한 비즈니스 문서를 "창작"합니다.
 
 [현재 문서 컨텍스트]
 - 전체 문서 내용: ${editorContext ? editorContext : '아직 내용이 없습니다.'}
@@ -35,7 +44,7 @@ export async function POST(req: Request) {
   })
 
   const result = streamText({
-    model: google('gemini-3-flash-preview'),
+    model: litellm('gemini/gemini-3-flash-preview'),
     system: systemPrompt,
     messages: modelMessages,
 
@@ -53,19 +62,20 @@ export async function POST(req: Request) {
       }),
 
       generateToc: tool({
-        description: '🚨 목차/개요 요청 시 반드시 호출',
+        description: '🚨 문서의 뼈대와 본문 템플릿을 생성할 때 호출. 각 항목의 templateHtml은 반드시 실제 내용으로 가득 채워져야 합니다.',
         inputSchema: z.object({
-          title: z.string().describe('목차 제목'),
-          documentType: z.string().describe('문서 종류'),
+          title: z.string().describe('문서의 제목'),
+          documentType: z.string().describe('문서 종류 (예: 전략 기획서, 투자 제안서)'),
           items: z.array(z.object({
             id: z.string(),
             level: z.number(),
-            text: z.string(),
-          })).describe('기본 목차 항목'),
-          recommendations: z.array(z.object({
-            id: z.string(),
-            text: z.string(),
-          })).describe('추천 항목'),
+            text: z.string().describe('섹션 제목'),
+            // ✨ AI에게 이 필드가 "실제 본문"임을 명확히 인지시킵니다.
+            templateHtml: z.string().describe(`🚨[필수] 이 섹션에 들어갈 실제 본문 내용(HTML). 
+              단순 텍스트가 아닌 표(table), 리스트(ul/li), 강조 박스(div) 등을 활용하여 
+              전문가 수준의 컨텐츠를 직접 작성하세요. 플레이스홀더는 절대 금지입니다.`),
+          })),
+          recommendations: z.array(z.object({ id: z.string(), text: z.string() })),
         }),
       }),
 

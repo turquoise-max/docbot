@@ -3,7 +3,13 @@
 import React, { useState } from 'react'
 import { Check, Plus, GripVertical, Trash2, Edit2 } from 'lucide-react'
 
-interface TocItem { id: string; level: number; text: string }
+// ✨ 인터페이스에 templateHtml 추가
+interface TocItem { 
+  id: string; 
+  level: number; 
+  text: string; 
+  templateHtml?: string; 
+}
 
 export default function TocBuilder({ 
   title: initialTitle, 
@@ -48,17 +54,43 @@ export default function TocBuilder({
     setItems(newItems);
   };
 
-  const handleApply = () => {
-    // 서식을 적용한 HTML 생성 (에디터 반영용)
-    let html = `<h1>${initialTitle}</h1>\n`;
+const handleApply = () => {
+    const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+    
+    let html = `<div style="font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; line-height: 1.6; color: #111827;">\n`;
+    
+    // 문서 커버 템플릿 (이 부분은 문서의 공통 규격이므로 남겨두는 것을 권장합니다)
+    html += `
+      <div style="text-align: center; padding: 60pt 0; border-bottom: 2pt solid #1e3a8a; margin-bottom: 40pt;">
+        <h1 style="font-size: 36pt; font-weight: bold; color: #1e3a8a; margin-bottom: 60pt;">${initialTitle}</h1>
+        <table style="width: 280pt; margin: 0 auto; border-collapse: collapse; text-align: left;">
+          <tr>
+            <td style="padding: 6pt; color: #64748b; width: 80pt;">작성일자</td>
+            <td style="padding: 6pt; font-weight: bold;">${today}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6pt; color: #64748b;">작성자</td>
+            <td style="padding: 6pt; font-weight: bold;">[작성자명 입력]</td>
+          </tr>
+        </table>
+      </div>
+      <br style="page-break-after: always;" />\n`;
+
     items.forEach(item => {
-      const headingTag = item.level === 1 ? 'h2' : 'h3';
-      const marginTop = item.level === 1 ? '24pt' : '16pt';
-      html += `<${headingTag} style="margin-top: ${marginTop};">${item.text}</${headingTag}>\n`;
-      html += `<p><span style="color: #9ca3af;">[내용을 입력하거나 AI에게 작성을 요청하세요]</span></p>\n`;
-    });
-    onApply(html);
-  };
+        // 레벨별 제목 생성
+        const headingStyle = item.level === 1 
+          ? "font-size: 18pt; border-bottom: 2pt solid #1e40af; padding-bottom: 5pt;" 
+          : "font-size: 14pt; border-left: 4pt solid #3b82f6; padding-left: 10pt;";
+        
+        html += `<h${item.level + 1} style="${headingStyle} margin-top: 30pt;">${item.text}</h${item.level + 1}>\n`;
+        
+        // ✨ AI가 판단해서 보낸 맞춤형 컨텐츠(표, 리스트 등)를 그대로 삽입
+        html += item.templateHtml || `<p>[내용 없음]</p>`;
+      });
+
+      html += `</div>`;
+      onApply(html);
+    };
 
   return (
     <div className="bg-white border-2 border-blue-100 rounded-xl p-5 shadow-lg w-full animate-in fade-in zoom-in duration-300">
