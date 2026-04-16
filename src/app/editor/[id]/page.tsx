@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import ChatPanel from '@/components/chat/ChatPanel'
 import { createClient } from '@/lib/supabase/client'
@@ -28,6 +28,8 @@ function EditorContentInner() {
   const [content, setContent] = useState('')
   const [isInitializing, setIsInitializing] = useState(true)
   const [loadingStep, setLoadingStep] = useState<LoadingStep>('idle')
+  const [isSaving, setIsSaving] = useState(false)
+  const lastSavedContentRef = useRef<string>('')
 
   // 핵심 개선: 이벤트 기반 초기화 로직
   const handleContentChange = useCallback((text: string) => {
@@ -134,31 +136,39 @@ function EditorContentInner() {
     // 초기화 중이거나 에디터가 준비되지 않았으면 타이머를 돌리지 않음
     if (!documentId || isInitializing || !editorRef.current) return;
 
+    // 내용이 변경되지 않았다면 저장 로직 생략
+    if (content === lastSavedContentRef.current) return;
+
     const timer = setTimeout(async () => {
       try {
+        setIsSaving(true);
+        console.log('자동 저장 중...');
+        
         const sfdt = editorRef.current?.getSfdt();
         if (sfdt) {
           const { error } = await supabase
             .from('documents')
             .update({ 
               content_html: sfdt,
-              updated_at: new Date().toISOString() // ✨ 피드백 수용: 최종 수정 시간 갱신
+              updated_at: new Date().toISOString()
             })
             .eq('id', documentId);
             
           if (error) {
-            console.error('Failed to auto-save document:', error);
+            console.error('자동 저장 실패:', error);
+          } else {
+            console.log('자동 저장 완료');
+            lastSavedContentRef.current = content;
           }
         }
       } catch (err) {
-        console.error('Error during auto-save:', err);
+        console.error('자동 저장 중 오류 발생:', err);
+      } finally {
+        setIsSaving(false);
       }
-    }, 3000);
+    }, 10000); // 3초에서 10초로 변경하여 메인 스레드 블로킹 완화
 
-    // 3초 내에 content가 또 변경되면 기존 저장 타이머를 취소 (디바운스 역할 완벽 수행)
     return () => clearTimeout(timer);
-    
-    // eslint 경고를 방지하기 위해 supabase는 남겨두되, 구조를 간결하게 유지
   }, [content, documentId, isInitializing, supabase, editorRef]);
 
   const handleExport = () => {
@@ -182,6 +192,7 @@ function EditorContentInner() {
             <span className="text-sm font-bold text-gray-800">{title}</span>
           </div>
           <div className="flex items-center gap-2">
+            {isSaving && <span className="text-xs text-gray-400">저장 중...</span>}
             <button className="px-3 py-1.5 text-xs font-medium border rounded-md hover:bg-gray-50">저장</button>
             <button onClick={handleExport} className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700">내보내기</button>
           </div>

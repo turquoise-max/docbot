@@ -188,17 +188,9 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         const editor = containerRef.current?.documentEditor;
         if (!editor) return '';
         
-        // 💡 주의: 전체 텍스트를 가져올 때 사용자의 기존 선택(커서) 영역을 안전하게 보호합니다.
-        const tempBookmark = 'ai_temp_read_selection_' + Date.now();
-        editor.editor.insertBookmark(tempBookmark);
-        
-        editor.selection.selectAll();
-        const text = editor.selection.text || '';
-        
-        editor.selection.selectBookmark(tempBookmark);
-        editor.editor.deleteBookmark(tempBookmark);
-        
-        return text;
+        // 커서 이동 없이 에디터의 텍스트만 추출 (성능 최적화 및 깜빡임 방지)
+        // @ts-ignore
+        return editor.text || '';
       },
 
       getSelectionText: () => {
@@ -240,6 +232,8 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
       previewSelection: async (html: string, textBefore?: string, targetText?: string, textAfter?: string, targetType?: 'text' | 'table'): Promise<boolean> => {
         const editor = containerRef.current?.documentEditor;
         if (!editor) return false;
+
+        let originalUser: string | undefined;
 
         try {
           const tempBookmark = 'ai_temp_position_' + Date.now();
@@ -343,7 +337,7 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           if (!response.ok) throw new Error('Conversion failed');
           const sfdt = await response.text();
 
-          const originalUser = editor.currentUser;
+          originalUser = editor.currentUser;
           editor.enableTrackChanges = true;
 
           // 🌟 1. 스타일 복원을 위한 변수 선언
@@ -374,14 +368,18 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
             }
           }
 
-          // 작성자 원복
-          editor.currentUser = originalUser;
-          
           return true;
           
         } catch (error) {
           console.error('미리보기 적용 실패:', error);
           return false;
+        } finally {
+          if (editor) {
+            if (originalUser !== undefined) {
+              editor.currentUser = originalUser;
+            }
+            editor.enableTrackChanges = false;
+          }
         }
       },
 
@@ -470,7 +468,9 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
 
           for (let r = 0; r < tableData.length; r++) {
             for (let c = 0; c < tableData[r].length; c++) {
-              editor.selection.selectAll();
+              // @ts-ignore
+              editor.selection.selectCell();
+              editor.editor.delete();
               editor.editor.insertText(tableData[r][c]);
               
               if (c < tableData[r].length - 1) {

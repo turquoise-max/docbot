@@ -21,14 +21,12 @@ function UpdateEditorTool({
   args, 
   toolCallId, 
   toolName,
-  addToolOutput, 
-  triggerMessage
+  addToolOutput
 }: { 
   args: { modifiedHtml?: string; textBefore?: string; targetText?: string; textAfter?: string }
   toolCallId: string
   toolName: string
   addToolOutput: (options: any) => void
-  triggerMessage: () => void
 }) {
   const { editorRef } = useEditor()
   const [status, setStatus] = useState<'pending' | 'applied' | 'rejected'>('pending')
@@ -48,11 +46,10 @@ function UpdateEditorTool({
               toolCallId,
               output: '시스템 알림: 텍스트를 찾지 못했습니다. 사용자에게 "수정하실 부분을 직접 드래그한 후 다시 요청해주세요."라고 안내하세요.'
             })
-            setTimeout(() => triggerMessage(), 50)
           }
         })
     }
-  }, [args, editorRef, status, toolCallId, toolName, addToolOutput, triggerMessage])
+  }, [args, editorRef, status, toolCallId, toolName, addToolOutput])
 
   if (!args?.modifiedHtml) {
     return <div className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
@@ -80,7 +77,6 @@ function UpdateEditorTool({
             if (editorRef?.current) editorRef.current.acceptPreview()
             setStatus('applied')
             addToolOutput({ tool: toolName, toolCallId, output: '사용자가 수정 사항을 수락했습니다.' })
-            setTimeout(() => triggerMessage(), 50)
           }}
           className="flex-1 flex items-center justify-center gap-1 bg-blue-600 text-white py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
         >
@@ -91,7 +87,6 @@ function UpdateEditorTool({
             if (editorRef?.current) editorRef.current.rejectPreview()
             setStatus('rejected')
             addToolOutput({ tool: toolName, toolCallId, output: '사용자가 수정 사항을 거절했습니다.' })
-            setTimeout(() => triggerMessage(), 50)
           }}
           className="flex-1 flex items-center justify-center gap-1 bg-white border border-gray-200 text-gray-600 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
         >
@@ -107,14 +102,12 @@ function UpdateTableTool({
   args, 
   toolCallId, 
   toolName,
-  addToolOutput, 
-  triggerMessage
+  addToolOutput
 }: { 
   args: { targetKeyword?: string; tableData?: string[][] }
   toolCallId: string
   toolName: string
   addToolOutput: (options: any) => void
-  triggerMessage: () => void
 }) {
   const { editorRef } = useEditor()
   const [status, setStatus] = useState<'pending' | 'applied' | 'rejected'>('pending')
@@ -135,11 +128,10 @@ function UpdateTableTool({
               toolCallId,
               output: '시스템 알림: 표를 찾지 못했습니다. 사용자에게 "수정하실 표를 직접 드래그한 후 다시 요청해주세요."라고 안내하세요.'
             })
-            setTimeout(() => triggerMessage(), 50)
           }
         })
     }
-  }, [args, editorRef, status, toolCallId, toolName, addToolOutput, triggerMessage])
+  }, [args, editorRef, status, toolCallId, toolName, addToolOutput])
 
   if (!args?.tableData || !args?.targetKeyword) {
     return <div className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
@@ -169,7 +161,6 @@ function UpdateTableTool({
             if (editorRef?.current) editorRef.current.acceptPreview()
             setStatus('applied')
             addToolOutput({ tool: toolName, toolCallId, output: '사용자가 표 수정 사항을 수락했습니다.' })
-            setTimeout(() => triggerMessage(), 50)
           }}
           className="flex-1 flex items-center justify-center gap-1 bg-blue-600 text-white py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
         >
@@ -180,7 +171,6 @@ function UpdateTableTool({
             if (editorRef?.current) editorRef.current.rejectPreview()
             setStatus('rejected')
             addToolOutput({ tool: toolName, toolCallId, output: '사용자가 표 수정 사항을 거절했습니다.' })
-            setTimeout(() => triggerMessage(), 50)
           }}
           className="flex-1 flex items-center justify-center gap-1 bg-white border border-gray-200 text-gray-600 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
         >
@@ -422,7 +412,6 @@ export default function ChatPanel({
                               toolCallId={toolCallId}
                               toolName={toolName}
                               addToolOutput={addToolOutput}
-                              triggerMessage={handleTriggerMessage}
                             />
                           );
                         }
@@ -464,7 +453,6 @@ export default function ChatPanel({
                               toolCallId={toolCallId}
                               toolName={toolName}
                               addToolOutput={addToolOutput}
-                              triggerMessage={handleTriggerMessage}
                             />
                           );
                         }
