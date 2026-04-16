@@ -26,6 +26,7 @@ export async function POST(req: Request) {
 [현재 문서 컨텍스트]
 - 전체 문서 내용: ${editorContext ? editorContext : '아직 내용이 없습니다.'}
 - 선택된 텍스트: ${selectedText ? selectedText : '없음'}
+- 만약 사용자가 명시적으로 선택한 텍스트(선택된 텍스트)가 없다면, 전체 문서 내용을 바탕으로 수정해야 할 위치를 스스로 찾아야 합니다. 이때 updateEditor 호출 시 textBefore, targetText, textAfter 파라미터를 사용하여 수정할 정확한 위치를 지정하세요.
 
 [🚨 능동형 워크플로우 - 반드시 다음 순서로 진행하세요]
 너는 항상 다음 순서로 진행한다:
@@ -83,6 +84,9 @@ export async function POST(req: Request) {
         description: '🚨 문서 수정 요청 시 반드시 호출',
         inputSchema: z.object({
           modifiedHtml: z.string().describe('적용할 최종 HTML'),
+          textBefore: z.string().optional().describe('수정할 부분 바로 앞의 텍스트 (고유성 확보를 위해 10자 이상)'),
+          targetText: z.string().optional().describe('수정할 원본 텍스트'),
+          textAfter: z.string().optional().describe('수정할 부분 바로 뒤의 텍스트'),
         }),
       }),
     },

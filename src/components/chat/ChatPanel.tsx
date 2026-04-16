@@ -17,12 +17,10 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+import { useEditor } from '@/contexts/EditorContext'
+
 interface ChatPanelProps {
-  selectedHtml: string
-  selectedText: string
   editorContext: string
-  onApplyEdit: (newContent: string) => void
-  editorRef?: RefObject<SyncfusionDocEditorRef>
 }
 
 // ==================== UpdateEditorTool ====================
@@ -31,18 +29,15 @@ function UpdateEditorTool({
   toolCallId, 
   toolName,
   addToolOutput, 
-  editorRef, 
-  onApplyEdit,
   triggerMessage
 }: { 
-  args: { modifiedHtml?: string }
+  args: { modifiedHtml?: string; textBefore?: string; targetText?: string; textAfter?: string }
   toolCallId: string
   toolName: string
   addToolOutput: (options: any) => void
-  editorRef?: RefObject<SyncfusionDocEditorRef>
-  onApplyEdit: (html: string) => void 
   triggerMessage: () => void
 }) {
+  const { editorRef } = useEditor()
   const [status, setStatus] = useState<'pending' | 'applied' | 'rejected'>('pending')
   const hasPreviewed = useRef(false)
 
@@ -50,9 +45,9 @@ function UpdateEditorTool({
     if (!args?.modifiedHtml) return
     if (status === 'pending' && !hasPreviewed.current && editorRef?.current) {
       hasPreviewed.current = true
-      editorRef.current.previewSelection(args.modifiedHtml)
+      editorRef.current.previewSelection(args.modifiedHtml, args.textBefore, args.targetText, args.textAfter)
     }
-  }, [args?.modifiedHtml, editorRef, status])
+  }, [args?.modifiedHtml, args?.textBefore, args?.targetText, args?.textAfter, editorRef, status])
 
   if (!args?.modifiedHtml) {
     return <div className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
@@ -79,7 +74,7 @@ function UpdateEditorTool({
         <button 
           onClick={() => {
             if (editorRef?.current) editorRef.current.acceptPreview()
-            else onApplyEdit(args.modifiedHtml!)
+            else if (args.modifiedHtml && editorRef?.current) editorRef.current.replaceSelection(args.modifiedHtml)
             
             setStatus('applied')
             addToolOutput({
@@ -121,18 +116,15 @@ function UpdateEditorTool({
 
 // ==================== Main ChatPanel ====================
 export default function ChatPanel({ 
-  selectedHtml, 
-  selectedText, 
-  editorContext, 
-  onApplyEdit, 
-  editorRef 
+  editorContext
 }: ChatPanelProps) {
+  const { selectedHtml, selectedText, editorRef } = useEditor()
 
   const INITIAL_PROMPT = '업로드된 문서의 구조와 핵심 내용을 분석해서 요약해줘. "[문서 구조 분석 브리핑]" 이라는 제목으로 시작하고, 앞으로 내가 질문하거나 수정을 요청할 때 이 전체 구조를 기억하고 문맥에 맞게 답변해줘.'
   
   const hasInitializedAnalyizeRef = useRef(false)
 
-  const [width, setWidth] = useState(400)
+  const [width, setWidth] = useState(600)
   const [isResizing, setIsResizing] = useState(false)
   const [input, setInput] = useState('')
 
@@ -368,8 +360,6 @@ export default function ChatPanel({
                               toolCallId={toolCallId}
                               toolName={toolName}
                               addToolOutput={addToolOutput}
-                              editorRef={editorRef}
-                              onApplyEdit={onApplyEdit}
                               triggerMessage={handleTriggerMessage}
                             />
                           );

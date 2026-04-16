@@ -1,120 +1,138 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import ChatPanel from '@/components/chat/ChatPanel'
 import { createClient } from '@/lib/supabase/client'
-import SyncfusionDocEditor, { SyncfusionDocEditorRef } from '@/components/editor/SyncfusionDocEditor'
+import SyncfusionDocEditor from '@/components/editor/SyncfusionDocEditor'
+import { EditorProvider, useEditor } from '@/contexts/EditorContext'
+
+// 로딩 단계를 정의합니다.
+type LoadingStep = 'idle' | 'downloading' | 'importing' | 'rendering' | 'complete';
 
 export default function EditorPage() {
   const params = useParams()
   const id = params.id as string
+
+  return (
+    <EditorProvider documentId={id}>
+      <EditorContentInner />
+    </EditorProvider>
+  )
+}
+
+function EditorContentInner() {
+  const { editorRef, title, setTitle, setSelection, documentId } = useEditor()
   const supabase = createClient()
 
-  const editorRef = useRef<SyncfusionDocEditorRef>(null)
   const [content, setContent] = useState('')
-  const [title, setTitle] = useState('무제 문서')
-  const [selectedHtml, setSelectedHtml] = useState('')
-  const [selectedText, setSelectedText] = useState('')
   const [isInitializing, setIsInitializing] = useState(true)
+  const [loadingStep, setLoadingStep] = useState<LoadingStep>('idle')
 
-useEffect(() => {
+  // 핵심 개선: 이벤트 기반 초기화 로직
+  const handleContentChange = useCallback((text: string) => {
+    setContent(text);
+    
+    // 렌더링 중이고 텍스트가 추출되었다면 초기화 완료
+    if (isInitializing && text.trim().length > 0) {
+      setLoadingStep('complete');
+      setIsInitializing(false);
+    }
+  }, [isInitializing]);
+
+  useEffect(() => {
+    let safetyTimer: NodeJS.Timeout;
+
     const fetchDocument = async () => {
-      if (!id) {
-        setIsInitializing(false)
-        return
+      if (!documentId) {
+        setIsInitializing(false);
+        return;
       }
 
       try {
+        setLoadingStep('downloading'); // 1단계: 다운로드 시작
         const { data, error } = await supabase
           .from('documents')
           .select('*')
-          .eq('id', id)
-          .single()
+          .eq('id', documentId)
+          .single();
 
-        if (error) throw error
+        if (error) throw error;
 
         if (data) {
-          setTitle(data.title)
-          
+          setTitle(data.title);
+
           if (data.file_path) {
             const { data: fileData, error: downloadError } = await supabase.storage
               .from('files')
-              .download(data.file_path)
+              .download(data.file_path);
 
-            if (downloadError) {
-              console.error('Error downloading file:', downloadError)
-              setIsInitializing(false)
-            } else if (fileData) {
+            if (downloadError) throw downloadError;
+
+            if (fileData) {
+              setLoadingStep('importing'); // 2단계: 서버 변환 시작
               const formData = new FormData();
               formData.append('document', fileData, 'document.docx');
-              
+
               const response = await fetch('/api/document/import', {
                 method: 'POST',
-                body: formData
+                body: formData,
               });
-              
+
               if (response.ok) {
-                 const sfdt = await response.text();
-                 setTimeout(() => {
-                   if (editorRef.current) {
-                     editorRef.current.loadDocument(sfdt);
-                     
-                     // ✨ 텍스트가 로드될 때까지 최대 5초간 0.5초 간격으로 반복 확인(Polling)합니다.
-                     let retries = 0;
-                     const MAX_RETRIES = 10; 
-                     
-                     const checkAndSetContent = () => {
-                       const text = editorRef.current?.getText() || '';
-                       console.log(`📄 텍스트 추출 시도 ${retries + 1}/10, 길이: ${text.length}`);
-                       
-                       if (text.trim().length > 10 || retries >= MAX_RETRIES) {
-                         setContent(text);
-                         setIsInitializing(false); // 텍스트 확보 후 챗패널 표시
-                       } else {
-                         retries++;
-                         setTimeout(checkAndSetContent, 500); // 0.5초 후 재시도
-                       }
-                     };
-                     
-                     setTimeout(checkAndSetContent, 500);
-                   } else {
-                     setIsInitializing(false);
-                   }
-                 }, 500);
-                 
-                 return; // 비동기 대기 중이므로 함수 종료
+                const sfdt = await response.text();
+                setLoadingStep('rendering'); // 3단계: 에디터 렌더링 시작
+                
+                editorRef.current?.loadDocument(sfdt);
+
+                // 안전장치: 이벤트가 발생하지 않더라도 10초 후에는 강제 로드 시도
+                safetyTimer = setTimeout(() => {
+                  if (isInitializing) {
+                    const text = editorRef.current?.getText() || '';
+                    setContent(text);
+                    setIsInitializing(false);
+                    setLoadingStep('complete');
+                  }
+                }, 10000); 
+
               } else {
-                 console.error('Failed to convert document to SFDT');
-                 setIsInitializing(false);
+                setIsInitializing(false);
               }
             }
           } else {
-             // 파일 경로가 없는 빈 문서인 경우
-             setIsInitializing(false);
+            setIsInitializing(false); // 빈 문서인 경우
           }
         }
       } catch (error) {
-        console.error('Failed to fetch document:', error)
+        console.error('Failed to fetch document:', error);
         setIsInitializing(false);
       }
-    }
+    };
 
-    fetchDocument()
-  }, [id, supabase])
+    fetchDocument();
+
+    return () => {
+      if (safetyTimer) clearTimeout(safetyTimer);
+    };
+  }, [documentId, supabase, setTitle, editorRef, isInitializing]);
+
+  // 로딩 메시지 맵핑
+  const loadingMessages = {
+    idle: '준비 중...',
+    downloading: '파일을 업로드하고 있습니다...',
+    importing: '문서 형식을 변환하는 중입니다...',
+    rendering: '에디터에 내용을 구성하고 있습니다...',
+    complete: '완료!'
+  };
 
   const handleSelectionChange = useCallback((html: string, text: string) => {
-    setSelectedHtml(html);
-    setSelectedText(text);
-  }, []);
-
-  const handleContentChange = useCallback((text: string) => {
-    setContent(text);
-  }, []);
+    setSelection(html, text);
+  }, [setSelection]);
 
   // Debounced auto-save effect
   useEffect(() => {
-    if (!id || isInitializing || !editorRef.current) return;
+    // 초기화 중이거나 에디터가 준비되지 않았으면 타이머를 돌리지 않음
+    if (!documentId || isInitializing || !editorRef.current) return;
 
     const timer = setTimeout(async () => {
       try {
@@ -122,8 +140,11 @@ useEffect(() => {
         if (sfdt) {
           const { error } = await supabase
             .from('documents')
-            .update({ content_html: sfdt })
-            .eq('id', id);
+            .update({ 
+              content_html: sfdt,
+              updated_at: new Date().toISOString() // ✨ 피드백 수용: 최종 수정 시간 갱신
+            })
+            .eq('id', documentId);
             
           if (error) {
             console.error('Failed to auto-save document:', error);
@@ -134,14 +155,11 @@ useEffect(() => {
       }
     }, 3000);
 
+    // 3초 내에 content가 또 변경되면 기존 저장 타이머를 취소 (디바운스 역할 완벽 수행)
     return () => clearTimeout(timer);
-  }, [content, id, isInitializing, supabase]);
-
-  const handleApplyEdit = (newContent: string) => {
-    if (editorRef.current) {
-      editorRef.current.replaceSelection(newContent)
-    }
-  }
+    
+    // eslint 경고를 방지하기 위해 supabase는 남겨두되, 구조를 간결하게 유지
+  }, [content, documentId, isInitializing, supabase, editorRef]);
 
   const handleExport = () => {
     if (editorRef.current) {
@@ -171,12 +189,23 @@ useEffect(() => {
 
         <div className="flex-1 relative bg-[#f0f0f0]">
           <div className="absolute inset-0">
-            {!isInitializing && (
-               <SyncfusionDocEditor 
-                 ref={editorRef} 
-                 onSelectionChange={handleSelectionChange}
-                 onContentChange={handleContentChange}
-               />
+            <SyncfusionDocEditor 
+              ref={editorRef} 
+              onSelectionChange={handleSelectionChange}
+              onContentChange={handleContentChange}
+            />
+            
+            {isInitializing && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 z-10 backdrop-blur-sm">
+                {/* 단순 텍스트 대신 스피너와 단계별 메시지 표시 */}
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="text-center">
+                    <p className="text-blue-800 font-bold text-lg">{loadingMessages[loadingStep]}</p>
+                    <p className="text-gray-500 text-sm mt-1">문서 크기에 따라 시간이 걸릴 수 있습니다.</p>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -185,11 +214,7 @@ useEffect(() => {
       {/* AI 챗 패널 */}
       {!isInitializing && (
         <ChatPanel
-          selectedHtml={selectedHtml}
-          selectedText={selectedText}
           editorContext={content}
-          onApplyEdit={handleApplyEdit}
-          editorRef={editorRef}
         />
       )}
     </main>

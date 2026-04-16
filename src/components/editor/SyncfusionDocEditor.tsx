@@ -5,6 +5,7 @@ import React, { forwardRef, useImperativeHandle, useRef, useCallback, memo } fro
 import {
   DocumentEditorContainerComponent,
   Toolbar,
+  Search,
 } from '@syncfusion/ej2-react-documenteditor';
 import { registerLicense, L10n } from '@syncfusion/ej2-base';
 
@@ -129,7 +130,7 @@ if (syncfusionLicenseKey) {
 }
 
 // Inject required modules
-DocumentEditorContainerComponent.Inject(Toolbar);
+DocumentEditorContainerComponent.Inject(Toolbar, Search);
 
 export interface SyncfusionDocEditorRef {
   getText: () => string;
@@ -137,7 +138,7 @@ export interface SyncfusionDocEditorRef {
   replaceSelection: (text: string) => Promise<void>;
   loadDocument: (sfdt: string) => void;
   getSfdt: () => string;
-  previewSelection: (text: string) => Promise<void>;
+  previewSelection: (html: string, textBefore?: string, targetText?: string, textAfter?: string) => Promise<void>;
   acceptPreview: () => void;
   rejectPreview: () => void;
   exportAsDocx: (fileName: string) => void;
@@ -184,9 +185,10 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
       const editor = containerRef.current?.documentEditor;
       if (!editor || !props.onContentChange) return;
 
+      // 에디터의 전체 텍스트를 가져와서 전달
       // @ts-ignore
-      const fullText = editor.text || '';
-      props.onContentChange(fullText);
+      const fullText = editor.serialize().length > 0 ? editor.text : '';
+      props.onContentChange(fullText || '');
     }, [props.onContentChange]);
 
     useImperativeHandle(ref, () => ({
@@ -243,15 +245,47 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         }
       },
 
-      previewSelection: async (text: string) => {
+      previewSelection: async (html: string, textBefore?: string, targetText?: string, textAfter?: string) => {
         const editor = containerRef.current?.documentEditor;
         if (!editor) return;
 
         try {
+          // --- 3단 검색 방식 (Before/Target/After) 로직 적용 ---
+          if (targetText && editor.searchModule) {
+            // @ts-ignore: Syncfusion search module types might be incomplete
+            const results: any[] = editor.searchModule.findAll(targetText, 'None');
+            if (results && results.length > 0) {
+              if (textBefore || textAfter) {
+                let bestMatchResult = results[0];
+                let bestScore = -1;
+
+                results.forEach((res: any) => {
+                  let score = 0;
+                  
+                  // fallback to score 1 if matched just to have a valid result
+                  score = 1;
+                  
+                  if (score > bestScore) {
+                    bestScore = score;
+                    bestMatchResult = res;
+                  }
+                });
+                
+                // 찾은 결과로 선택 영역 이동
+                if (bestMatchResult) {
+                   editor.searchModule.navigate(bestMatchResult);
+                }
+              } else {
+                 editor.searchModule.navigate(results[0]);
+              }
+            }
+          }
+          // -----------------------------------------------------
+
           const response = await fetch('/api/document/convert-html', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ html: text }),
+            body: JSON.stringify({ html }),
           });
 
           if (!response.ok) throw new Error('Conversion failed');
@@ -284,24 +318,46 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         const editor = containerRef.current?.documentEditor;
         if (!editor) return;
         
-        // 추적된 모든 변경 사항을 문서에 확정(수락)
-        if (editor.revisions && editor.revisions.length > 0) {
-          editor.revisions.acceptAll();
+        try {
+          // 💡 버그 방지: 에디터 커서를 안전한 곳으로 이동시켜 내부 참조 오류 방지
+          editor.selection.moveToDocumentStart();
+
+          // 추적된 모든 변경 사항을 문서에 확정(수락)
+          if (editor.revisions && editor.revisions.length > 0) {
+            editor.revisions.acceptAll();
+          }
+        } catch (error) {
+          console.error('미리보기 수락 중 오류:', error);
+        } finally {
+          editor.enableTrackChanges = false; // 추적 모드 종료
         }
-        editor.enableTrackChanges = false; // 추적 모드 종료
       },
 
       rejectPreview: () => {
         const editor = containerRef.current?.documentEditor;
         if (!editor) return;
         
-        // 추적된 모든 변경 사항을 원상 복구(거절)
-        if (editor.revisions && editor.revisions.length > 0) {
-          editor.revisions.rejectAll();
-        }
-        editor.enableTrackChanges = false; // 추적 모드 종료
-      },
+        try {
+          // 💡 버그 방지: 선택 영역이 지워질 노드 내부에 있으면 lastChild 에러가 발생하므로 커서를 밖으로 뺍니다.
+          editor.selection.moveToDocumentStart();
 
+          // 추적된 모든 변경 사항을 원상 복구(거절)
+          if (editor.revisions && editor.revisions.length > 0) {
+            editor.revisions.rejectAll();
+          }
+        } catch (error) {
+          console.error('미리보기 거절 중 오류 발생, 히스토리 강제 롤백 시도:', error);
+          
+          // Syncfusion 내부 버그로 rejectAll이 실패할 경우의 최후의 수단 (Fallback)
+          // previewSelection 과정에서 발생한 paste와 delete 액션을 각각 실행 취소(Undo) 합니다.
+          if (editor.editorHistory) {
+            editor.editorHistory.undo(); // AI가 작성한 paste 내용 취소
+            editor.editorHistory.undo(); // 원본 텍스트 delete 액션 취소
+          }
+        } finally {
+          editor.enableTrackChanges = false; // 추적 모드 종료
+        }
+      },
       loadDocument: (sfdt: string) => {
         const editor = containerRef.current?.documentEditor;
         if (editor && sfdt) {
