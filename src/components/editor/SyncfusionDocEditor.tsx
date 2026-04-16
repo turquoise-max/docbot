@@ -136,10 +136,11 @@ export interface SyncfusionDocEditorRef {
   replaceSelection: (text: string) => Promise<void>;
   loadDocument: (sfdt: string) => void;
   getSfdt: () => string;
-  previewSelection: (html: string, textBefore?: string, targetText?: string, textAfter?: string, targetType?: 'text' | 'table') => Promise<boolean | void>;
+  previewSelection: (html: string, textBefore?: string, targetText?: string, textAfter?: string, targetType?: 'text' | 'table') => Promise<boolean>;
   acceptPreview: () => void;
   rejectPreview: () => void;
   exportAsDocx: (fileName: string) => void;
+  updateTableData: (targetKeyword: string, tableData: string[][]) => Promise<boolean>;
 }
 
 interface SyncfusionDocEditorProps {
@@ -332,6 +333,7 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
             return false;
           }
 
+          // 8. SFDT 변환 호출
           const response = await fetch('/api/document/convert-html', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -344,14 +346,35 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           const originalUser = editor.currentUser;
           editor.enableTrackChanges = true;
 
-          editor.currentUser = 'Original Text';
+          // 🌟 1. 스타일 복원을 위한 변수 선언
+          let originalStyle: string | undefined;
+
+          // 🌟 2. 덮어쓰기 전에 기존 스타일 이름 안전하게 저장
           if (!editor.selection.isEmpty && foundSomething) {
-            editor.editor.delete(); 
+            originalStyle = editor.selection.paragraphFormat.styleName;
           }
 
+          // 🌟 3. 툴바 크래시 방지: delete() 없이 paste()로 자동 덮어쓰기
           editor.currentUser = 'AI Assistant';
+          
+          if (!editor.selection.isEmpty && foundSomething) {
+            // 레이아웃 엔진과 툴바 상태가 꼬이지 않도록 10ms의 미세한 딜레이 부여
+            await new Promise(resolve => setTimeout(resolve, 10));
+          }
+          
+          // 선택 영역이 있으면 지우고 붙여넣기, 없으면 그냥 붙여넣기가 자동으로 수행됨
           editor.editor.paste(sfdt); 
 
+          // 🌟 4. 새로운 내용을 붙여넣은 직후, 저장해둔 스타일 복원
+          if (originalStyle && originalStyle !== 'Normal') {
+            try {
+              editor.editor.applyStyle(originalStyle);
+            } catch (e) {
+              console.warn("스타일 복원 실패:", e);
+            }
+          }
+
+          // 작성자 원복
           editor.currentUser = originalUser;
           
           return true;
@@ -397,6 +420,7 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           editor.enableTrackChanges = false;
         }
       },
+
       loadDocument: (sfdt: string) => {
         const editor = containerRef.current?.documentEditor;
         if (editor && sfdt) {
@@ -414,6 +438,63 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         const editor = containerRef.current?.documentEditor;
         if (!editor) return;
         editor.save(fileName || '무제 문서', 'Docx');
+      },
+
+      updateTableData: async (targetKeyword: string, tableData: string[][]): Promise<boolean> => {
+        const editor = containerRef.current?.documentEditor;
+        if (!editor) return false;
+
+        try {
+          let foundTable = false;
+          if (editor.searchModule) {
+            // @ts-ignore
+            const results: any[] = editor.searchModule.findAll(targetKeyword, 'None');
+            if (results && results.length > 0) {
+              editor.searchModule.navigate(results[0]);
+              foundTable = true;
+            }
+          }
+
+          if (!foundTable) {
+            console.warn('표를 찾지 못했습니다.');
+            return false;
+          }
+
+          // 해당 표의 첫 번째 셀로 이동
+          // @ts-ignore
+          editor.selection.navigateTable('FirstCell');
+
+          const originalUser = editor.currentUser;
+          editor.enableTrackChanges = true;
+          editor.currentUser = 'AI Assistant';
+
+          for (let r = 0; r < tableData.length; r++) {
+            for (let c = 0; c < tableData[r].length; c++) {
+              editor.selection.selectAll();
+              editor.editor.insertText(tableData[r][c]);
+              
+              if (c < tableData[r].length - 1) {
+                // @ts-ignore
+                editor.selection.navigateTable('NextCell');
+              }
+            }
+            if (r < tableData.length - 1) {
+              // @ts-ignore
+              editor.selection.navigateTable('NextRow');
+            }
+          }
+
+          editor.currentUser = originalUser;
+          // 셀 단위 업데이트에서는 track changes를 끄는 것이 안전할 수 있음
+          editor.enableTrackChanges = false;
+          return true;
+        } catch (error) {
+          console.error('표 업데이트 실패:', error);
+          if (editor) {
+            editor.enableTrackChanges = false;
+          }
+          return false;
+        }
       },
     }));
 
