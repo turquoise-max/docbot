@@ -31,7 +31,7 @@ function UpdateEditorTool({
   addToolOutput, 
   triggerMessage
 }: { 
-  args: { modifiedHtml?: string; textBefore?: string; targetText?: string; textAfter?: string }
+  args: { modifiedHtml?: string; textBefore?: string; targetText?: string; textAfter?: string; targetType?: 'text' | 'table' }
   toolCallId: string
   toolName: string
   addToolOutput: (options: any) => void
@@ -45,9 +45,22 @@ function UpdateEditorTool({
     if (!args?.modifiedHtml) return
     if (status === 'pending' && !hasPreviewed.current && editorRef?.current) {
       hasPreviewed.current = true
-      editorRef.current.previewSelection(args.modifiedHtml, args.textBefore, args.targetText, args.textAfter)
+      
+      // ✨ targetType 인자 추가 전달
+      editorRef.current.previewSelection(args.modifiedHtml, args.textBefore, args.targetText, args.textAfter, args.targetType)
+        .then((success: boolean | void) => {
+          if (success === false) {
+            setStatus('rejected')
+            addToolOutput({
+              tool: toolName,
+              toolCallId,
+              output: '시스템 알림: 텍스트를 찾지 못했습니다. 사용자에게 "수정하실 부분을 직접 드래그한 후 다시 요청해주세요."라고 안내하세요.'
+            })
+            setTimeout(() => triggerMessage(), 50)
+          }
+        })
     }
-  }, [args?.modifiedHtml, args?.textBefore, args?.targetText, args?.textAfter, editorRef, status])
+  }, [args, editorRef, status, toolCallId, toolName, addToolOutput, triggerMessage])
 
   if (!args?.modifiedHtml) {
     return <div className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
@@ -198,7 +211,21 @@ export default function ChatPanel({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!input.trim() || isStreaming || hasPendingTool) return
+    if (!input.trim() || isStreaming) return
+
+    if (hasPendingTool) {
+      messages.forEach((m: UIMessage) => {
+        m.parts?.forEach((part: any) => {
+          if (part.type.startsWith('tool-') && (part.state === 'input-streaming' || part.state === 'input-available')) {
+            addToolOutput({
+              tool: part.type.replace('tool-', ''),
+              toolCallId: part.toolCallId,
+              output: '사용자가 도구 사용을 무시하고 새로운 채팅을 입력하여 실행이 취소되었습니다.'
+            })
+          }
+        })
+      })
+    }
 
     sendMessage({ text: input }, {
       body: {
@@ -347,6 +374,13 @@ export default function ChatPanel({
                                   handleTriggerMessage()
                                 }, 50)
                               }}
+                              onCancel={() => {
+                                addToolOutput({
+                                  tool: toolName,
+                                  toolCallId,
+                                  output: '사용자가 목차 생성을 건너뛰었습니다.'
+                                });
+                              }}
                             />
                           );
                         }
@@ -383,6 +417,13 @@ export default function ChatPanel({
                                 setTimeout(() => {
                                   handleTriggerMessage()
                                 }, 50)
+                              }}
+                              onCancel={() => {
+                                addToolOutput({
+                                  tool: toolName,
+                                  toolCallId,
+                                  output: '사용자가 옵션 선택을 건너뛰었습니다.'
+                                });
                               }}
                             />
                           );
@@ -421,13 +462,13 @@ export default function ChatPanel({
           <input
             value={input}
             onChange={handleInputChange}
-            placeholder={selectedText ? "선택 영역을 어떻게 수정할까요?" : "무엇을 도와드릴까요?"}
+            placeholder={hasPendingTool ? "도구를 무시하고 다른 요청하기..." : (selectedText ? "선택 영역을 어떻게 수정할까요?" : "무엇을 도와드릴까요?")}
             className="w-full pl-3 pr-10 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             disabled={isStreaming}
           />
           <button
             type="submit"
-            disabled={isStreaming || !input.trim() || hasPendingTool}
+            disabled={isStreaming || !input.trim()}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-600 disabled:text-gray-300 transition-colors"
           >
             <Send size={20} />

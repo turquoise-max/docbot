@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Check, Plus, GripVertical, Trash2, Edit2 } from 'lucide-react'
+import { Check, Plus, GripVertical, Trash2, Edit2, X } from 'lucide-react'
 
 // ✨ 인터페이스에 templateHtml 추가
 interface TocItem { 
@@ -15,12 +15,14 @@ export default function TocBuilder({
   title: initialTitle, 
   items: initialItems, 
   recommendations, 
-  onApply 
+  onApply,
+  onCancel
 }: { 
   title: string, 
   items: TocItem[], 
   recommendations: {id: string, text: string}[],
-  onApply: (finalHtml: string) => void 
+  onApply: (finalHtml: string) => void,
+  onCancel?: () => void
 }) {
   const [items, setItems] = useState<TocItem[]>(initialItems);
   const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
@@ -156,12 +158,22 @@ const handleApply = () => {
         </div>
       </div>
 
-      <button
-        onClick={handleApply}
-        className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-shadow shadow-md active:scale-[0.98]"
-      >
-        <Check size={18} /> 에디터에 적용하기
-      </button>
+      <div className="flex flex-col gap-2">
+        <button
+          onClick={handleApply}
+          className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-shadow shadow-md active:scale-[0.98]"
+        >
+          <Check size={18} /> 에디터에 적용하기
+        </button>
+        {onCancel && (
+          <button
+            onClick={onCancel}
+            className="w-full flex items-center justify-center gap-1 bg-gray-100 text-gray-500 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
+          >
+            <X size={16} /> 건너뛰기
+          </button>
+        )}
+      </div>
     </div>
   )
 }

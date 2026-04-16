@@ -38,7 +38,9 @@ export async function POST(req: Request) {
 - 정보 수집(질문)이 필요할 땐 일반 텍스트 응답을 하지 말고 반드시 **askClarification** 도구를 호출하세요!
 - 각 단계가 완료되면(예: 사용자가 도구의 결과를 선택/적용하면) 스스로 판단하여 다음 단계의 도구를 연속해서 호출하세요.
 - 텍스트 응답은 최소화하고 도구(Tool) 호출을 최우선으로 실행하세요.
-- 여러 단계를 스스로 판단하여 능동적으로 이끌어가세요.`;
+- 여러 단계를 스스로 판단하여 능동적으로 이끌어가세요.
+- ✨ **[표(Table) 수정 특명]** 사용자가 표의 수정을 요청했을 때, 표 전체의 텍스트를 targetText로 넣으면 검색에 실패합니다. 
+  표를 수정할 때는 반드시 **targetType을 'table'**로 설정하고, **targetText에는 표 내부에 있는 식별 가능한 짧은 고유 단어(예: 특정 헤더명) 1~2개**만 입력하세요. 시스템이 알아서 표 전체를 찾아 덮어씁니다.`;
 
   const modelMessages = await convertToModelMessages(messages, {
     ignoreIncompleteToolCalls: true,
@@ -84,8 +86,9 @@ export async function POST(req: Request) {
         description: '🚨 문서 수정 요청 시 반드시 호출',
         inputSchema: z.object({
           modifiedHtml: z.string().describe('적용할 최종 HTML'),
-          textBefore: z.string().optional().describe('수정할 부분 바로 앞의 텍스트 (고유성 확보를 위해 10자 이상)'),
-          targetText: z.string().optional().describe('수정할 원본 텍스트'),
+          targetType: z.enum(['text', 'table']).optional().describe("수정 대상의 타입. 표(Table) 전체를 교체할 때는 반드시 'table'을 선택하세요."),
+          targetText: z.string().optional().describe("수정할 원본 텍스트. 표('table')를 수정할 경우, 전체 내용이 아닌 표 내부의 고유 단어 1~2개만 적어주세요."),
+          textBefore: z.string().optional().describe('수정할 부분 바로 앞의 텍스트'),
           textAfter: z.string().optional().describe('수정할 부분 바로 뒤의 텍스트'),
         }),
       }),

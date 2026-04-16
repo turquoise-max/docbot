@@ -1,6 +1,5 @@
 'use client';
 
-// 1. React에서 memo를 추가로 불러옵니다.
 import React, { forwardRef, useImperativeHandle, useRef, useCallback, memo } from 'react';
 import {
   DocumentEditorContainerComponent,
@@ -46,7 +45,6 @@ L10n.load({
       'Font': '글꼴',
       'Clipboard': '클립보드',
       'Properties': '속성',
-      // ✨ 스크린샷에 나타난 영문 메뉴 번역 추가
       'Insert Footnote': '각주 삽입',
       'Insert Endnote': '미주 삽입',
       'Comments': '메모',
@@ -138,7 +136,7 @@ export interface SyncfusionDocEditorRef {
   replaceSelection: (text: string) => Promise<void>;
   loadDocument: (sfdt: string) => void;
   getSfdt: () => string;
-  previewSelection: (html: string, textBefore?: string, targetText?: string, textAfter?: string) => Promise<void>;
+  previewSelection: (html: string, textBefore?: string, targetText?: string, textAfter?: string, targetType?: 'text' | 'table') => Promise<boolean | void>;
   acceptPreview: () => void;
   rejectPreview: () => void;
   exportAsDocx: (fileName: string) => void;
@@ -149,11 +147,8 @@ interface SyncfusionDocEditorProps {
   onContentChange?: (text: string) => void;
 }
 
-// 2. 인라인 스타일 객체를 컴포넌트 외부로 분리합니다. 
-// (렌더링 시마다 새로운 객체가 생성되는 것을 방지하여 에디터 깜빡임을 막습니다)
 const containerStyle = { display: 'block' };
 
-// 3. forwardRef 컴포넌트를 memo()로 감싸줍니다.
 const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDocEditorProps>(
   (props, ref) => {
     const containerRef = useRef<DocumentEditorContainerComponent>(null);
@@ -174,10 +169,7 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         return;
       }
 
-      // ✨ HTML 대신, 선택된 영역의 모든 서식 구조가 담긴 SFDT(JSON 문자열)를 추출합니다.
       const selectedSfdt = selection.sfdt;
-      
-      // 기존 onSelectionChange의 첫 번째 인자(selectedHtml) 자리에 selectedSfdt를 넘겨줍니다.
       props.onSelectionChange(selectedSfdt, selectedText);
     }, [props.onSelectionChange]);
 
@@ -185,7 +177,6 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
       const editor = containerRef.current?.documentEditor;
       if (!editor || !props.onContentChange) return;
 
-      // 에디터의 전체 텍스트를 가져와서 전달
       // @ts-ignore
       const fullText = editor.serialize().length > 0 ? editor.text : '';
       props.onContentChange(fullText || '');
@@ -196,15 +187,15 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         const editor = containerRef.current?.documentEditor;
         if (!editor) return '';
         
-        // 주의: 이 방식은 에디터의 사용자 선택 영역을 강제로 이동시킵니다.
-        // AI가 문서 전체 텍스트를 읽어야 한다면 에디터의 내부 텍스트를 직접 추출하는 로직으로 
-        // 추후 개선하는 것을 추천해 드립니다.
-        const bookmarkName = 'temp_ai_selection';
-        const isSelectionEmpty = editor.selection.isEmpty;
+        // 💡 주의: 전체 텍스트를 가져올 때 사용자의 기존 선택(커서) 영역을 안전하게 보호합니다.
+        const tempBookmark = 'ai_temp_read_selection_' + Date.now();
+        editor.editor.insertBookmark(tempBookmark);
         
         editor.selection.selectAll();
         const text = editor.selection.text || '';
-        editor.selection.moveToDocumentStart();
+        
+        editor.selection.selectBookmark(tempBookmark);
+        editor.editor.deleteBookmark(tempBookmark);
         
         return text;
       },
@@ -245,42 +236,101 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         }
       },
 
-      previewSelection: async (html: string, textBefore?: string, targetText?: string, textAfter?: string) => {
+      previewSelection: async (html: string, textBefore?: string, targetText?: string, textAfter?: string, targetType?: 'text' | 'table'): Promise<boolean> => {
         const editor = containerRef.current?.documentEditor;
-        if (!editor) return;
+        if (!editor) return false;
 
         try {
-          // --- 3단 검색 방식 (Before/Target/After) 로직 적용 ---
-          if (targetText && editor.searchModule) {
-            // @ts-ignore: Syncfusion search module types might be incomplete
-            const results: any[] = editor.searchModule.findAll(targetText, 'None');
-            if (results && results.length > 0) {
-              if (textBefore || textAfter) {
-                let bestMatchResult = results[0];
-                let bestScore = -1;
+          const tempBookmark = 'ai_temp_position_' + Date.now();
+          editor.editor.insertBookmark(tempBookmark);
+          const hadSelection = !editor.selection.isEmpty;
 
+          editor.selection.selectAll();
+          const fullText = editor.selection.text || '';
+          
+          editor.selection.selectBookmark(tempBookmark);
+          editor.editor.deleteBookmark(tempBookmark);
+
+          let bestMatchResult: any = null;
+          let bestScore = -1;
+          let foundSomething = false;
+
+          // --- ✨ 3단 검색 및 표(Table) 타겟팅 로직 ---
+          if (editor.searchModule) {
+            const searchQueries: string[] = [];
+            
+            if (targetText) {
+              searchQueries.push(targetText); // 1순위
+              // 2순위: 긴 줄바꿈 문장 추출
+              const lines = targetText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 2);
+              if (lines.length > 0) {
+                const longestLine = lines.reduce((a, b) => a.length > b.length ? a : b, "");
+                searchQueries.push(longestLine);
+              }
+            } else if (textBefore) {
+              searchQueries.push(textBefore); // 3순위
+            }
+
+            for (const query of searchQueries) {
+              if (!query) continue;
+              // @ts-ignore
+              const results: any[] = editor.searchModule.findAll(query, 'None');
+              
+              if (results && results.length > 0) {
+                let searchStartIndex = 0;
                 results.forEach((res: any) => {
-                  let score = 0;
+                  let score = 1; 
+                  const matchIndex = fullText.indexOf(query, searchStartIndex);
                   
-                  // fallback to score 1 if matched just to have a valid result
-                  score = 1;
-                  
+                  if (matchIndex !== -1) {
+                    if (textBefore) {
+                      const actualBefore = fullText.substring(Math.max(0, matchIndex - textBefore.length - 20), matchIndex);
+                      if (actualBefore.replace(/\s/g, '').includes(textBefore.replace(/\s/g, ''))) score += 10;
+                    }
+                    if (textAfter) {
+                      const actualAfter = fullText.substring(matchIndex + query.length, matchIndex + query.length + textAfter.length + 20);
+                      if (actualAfter.replace(/\s/g, '').includes(textAfter.replace(/\s/g, ''))) score += 10;
+                    }
+                    searchStartIndex = matchIndex + query.length;
+                  }
                   if (score > bestScore) {
                     bestScore = score;
                     bestMatchResult = res;
                   }
                 });
-                
-                // 찾은 결과로 선택 영역 이동
-                if (bestMatchResult) {
-                   editor.searchModule.navigate(bestMatchResult);
+                if (bestMatchResult) break;
+              }
+            }
+
+            if (bestMatchResult) {
+              editor.searchModule.navigate(bestMatchResult);
+              foundSomething = true;
+              
+              // 🚀 핵심: AI가 표(Table)를 타겟팅한 경우
+              if (targetType === 'table') {
+                try {
+                  // 검색된 단어의 위치(표 내부)에서 '표 전체 선택' 명령 실행
+                  // @ts-ignore
+                  editor.selection.selectTable();
+                } catch (e) {
+                  console.warn("표 선택에 실패했습니다.", e);
                 }
-              } else {
-                 editor.searchModule.navigate(results[0]);
+              } else if (!targetText && textBefore && bestMatchResult.text === textBefore) {
+                // 문맥으로만 찾았을 땐 다음 위치로 넘어가기
+                editor.selection.moveToNextCharacter();
               }
             }
           }
           // -----------------------------------------------------
+
+          if (!foundSomething && hadSelection) {
+            foundSomething = true;
+          }
+
+          if (!foundSomething) {
+            console.warn('에디터에서 수정할 위치를 찾지 못했습니다.');
+            return false;
+          }
 
           const response = await fetch('/api/document/convert-html', {
             method: 'POST',
@@ -292,25 +342,23 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           const sfdt = await response.text();
 
           const originalUser = editor.currentUser;
-          
-          // 에디터의 '변경 내용 추적' 활성화
           editor.enableTrackChanges = true;
 
-          // ✨ 1. 원본을 지울 때는 가상의 작성자 'Original Text'로 설정 (다른 색상 부여를 위함)
           editor.currentUser = 'Original Text';
-          if (!editor.selection.isEmpty) {
-            editor.editor.delete(); // 이 시점에 원본은 첫 번째 색상(예: 빨간색)의 취소선으로 표시됨
+          if (!editor.selection.isEmpty && foundSomething) {
+            editor.editor.delete(); 
           }
 
-          // ✨ 2. 새 내용을 붙여넣을 때는 'AI Assistant'로 설정 (새로운 색상 부여)
           editor.currentUser = 'AI Assistant';
-          editor.editor.paste(sfdt); // 이 시점에 새 내용은 두 번째 색상(예: 파란색)의 밑줄로 표시됨
+          editor.editor.paste(sfdt); 
 
-          // 원래 작성자로 복구
           editor.currentUser = originalUser;
+          
+          return true;
           
         } catch (error) {
           console.error('미리보기 적용 실패:', error);
+          return false;
         }
       },
 
@@ -319,17 +367,14 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         if (!editor) return;
         
         try {
-          // 💡 버그 방지: 에디터 커서를 안전한 곳으로 이동시켜 내부 참조 오류 방지
           editor.selection.moveToDocumentStart();
-
-          // 추적된 모든 변경 사항을 문서에 확정(수락)
           if (editor.revisions && editor.revisions.length > 0) {
             editor.revisions.acceptAll();
           }
         } catch (error) {
           console.error('미리보기 수락 중 오류:', error);
         } finally {
-          editor.enableTrackChanges = false; // 추적 모드 종료
+          editor.enableTrackChanges = false;
         }
       },
 
@@ -338,24 +383,18 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         if (!editor) return;
         
         try {
-          // 💡 버그 방지: 선택 영역이 지워질 노드 내부에 있으면 lastChild 에러가 발생하므로 커서를 밖으로 뺍니다.
           editor.selection.moveToDocumentStart();
-
-          // 추적된 모든 변경 사항을 원상 복구(거절)
           if (editor.revisions && editor.revisions.length > 0) {
             editor.revisions.rejectAll();
           }
         } catch (error) {
           console.error('미리보기 거절 중 오류 발생, 히스토리 강제 롤백 시도:', error);
-          
-          // Syncfusion 내부 버그로 rejectAll이 실패할 경우의 최후의 수단 (Fallback)
-          // previewSelection 과정에서 발생한 paste와 delete 액션을 각각 실행 취소(Undo) 합니다.
           if (editor.editorHistory) {
-            editor.editorHistory.undo(); // AI가 작성한 paste 내용 취소
-            editor.editorHistory.undo(); // 원본 텍스트 delete 액션 취소
+            editor.editorHistory.undo(); 
+            editor.editorHistory.undo(); 
           }
         } finally {
-          editor.enableTrackChanges = false; // 추적 모드 종료
+          editor.enableTrackChanges = false;
         }
       },
       loadDocument: (sfdt: string) => {
@@ -385,7 +424,7 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           ref={containerRef}
           height="100%"
           width="100%"
-          style={containerStyle} // 4. 분리해 둔 스타일 객체를 할당합니다.
+          style={containerStyle}
           enableToolbar={true}
           locale="ko"
           selectionChange={handleSelectionChange}

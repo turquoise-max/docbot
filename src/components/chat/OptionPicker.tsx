@@ -10,9 +10,12 @@ interface OptionPickerProps {
   options: Option[];
   allowMultiple?: boolean;
   onSelect: (value: string) => void;
+  onCancel?: () => void;
 }
 
-export const OptionPicker: React.FC<OptionPickerProps> = ({ question, options, allowMultiple, onSelect }) => {
+import { X } from 'lucide-react';
+
+export const OptionPicker: React.FC<OptionPickerProps> = ({ question, options, allowMultiple, onSelect, onCancel }) => {
   const [selected, setSelected] = useState<string[]>([]);
   const [submitted, setSubmitted] = useState(false);
 
@@ -75,6 +78,17 @@ export const OptionPicker: React.FC<OptionPickerProps> = ({ question, options, a
           className="mt-2 w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           선택 완료
+        </button>
+      )}
+      {!submitted && onCancel && (
+        <button
+          onClick={() => {
+            setSubmitted(true);
+            onCancel();
+          }}
+          className="mt-2 w-full flex items-center justify-center gap-1 py-2 bg-gray-100 text-gray-500 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+        >
+          <X size={16} /> 건너뛰기
         </button>
       )}
     </div>
