@@ -424,14 +424,18 @@ export default function ChatPanel({
                               title={args.title}
                               items={args.items}
                               recommendations={args.recommendations || []}
-                              onApply={(finalHtml: string) => {
-                                if (editorRef?.current) editorRef.current.replaceSelection(finalHtml);
+                              onApply={async (finalHtml: string) => {
+                                if (editorRef?.current) {
+                                  await editorRef.current.replaceSelection(finalHtml);
+                                }
+                                
                                 addToolOutput({
                                   tool: toolName,
                                   toolCallId,
-                                  output: `${args.documentType || '문서'} 목차가 적용되었습니다.`
+                                  output: `[시스템 알림: 에디터 적용 성공]
+                                  목차 및 템플릿이 에디터에 성공적으로 반영되었습니다.
+                                  (중요 지시사항: "텍스트 응답 최소화" 규칙을 무시하고, 반드시 사용자에게 어떤 구조로 문서를 작성 완료했는지 텍스트로 친절하게 브리핑해주세요. 그리고 추가로 이어서 작업할 내용이 있는지 질문하세요.)`
                                 });
-                                setTimeout(() => handleTriggerMessage(), 50)
                               }}
                               onCancel={() => {
                                 addToolOutput({
@@ -471,7 +475,6 @@ export default function ChatPanel({
                                   toolCallId,
                                   output: `사용자가 다음 옵션을 선택했습니다: ${value}`
                                 });
-                                setTimeout(() => handleTriggerMessage(), 50)
                               }}
                               onCancel={() => {
                                 addToolOutput({

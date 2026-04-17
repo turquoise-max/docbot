@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
-import { Check, Plus, GripVertical, Trash2, Edit2, X } from 'lucide-react'
+import { Check, Plus, GripVertical, Trash2, Edit2, X, Loader2 } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -129,22 +129,26 @@ function SortableTocItem({
 }
 
 
+interface TocBuilderProps {
+  title: string;
+  items: TocItem[];
+  recommendations: {id: string, text: string}[];
+  onApply: (finalHtml: string) => Promise<void>;
+  onCancel?: () => void;
+}
+
 export default function TocBuilder({ 
   title: initialTitle, 
   items: initialItems, 
   recommendations, 
   onApply,
   onCancel
-}: { 
-  title: string, 
-  items: TocItem[], 
-  recommendations: {id: string, text: string}[],
-  onApply: (finalHtml: string) => void,
-  onCancel?: () => void
-}) {
+}: TocBuilderProps) {
   const [items, setItems] = useState<TocItem[]>(initialItems);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newItemText, setNewItemText] = useState('');
+  
+  const [applyStatus, setApplyStatus] = useState<'idle' | 'applying' | 'success'>('idle');
   
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
@@ -252,8 +256,12 @@ export default function TocBuilder({
     setOffsetLeft(0);
   };
 
-const handleApply = () => {
-    const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+  const handleApply = async () => {
+    if (applyStatus !== 'idle') return;
+    setApplyStatus('applying');
+
+    try {
+      const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
     
     let html = `<div style="font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; line-height: 1.6; color: #111827;">\n`;
     
@@ -287,8 +295,15 @@ const handleApply = () => {
       });
 
       html += `</div>`;
-      onApply(html);
-    };
+      
+      await onApply(html);
+      setApplyStatus('success');
+    } catch (error) {
+      console.error("적용 중 오류 발생:", error);
+      setApplyStatus('idle');
+      alert("에디터 적용에 실패했습니다.");
+    }
+  };
 
   return (
     <div className="bg-white border-2 border-blue-100 rounded-xl p-5 shadow-lg w-full animate-in fade-in zoom-in duration-300">
@@ -401,13 +416,29 @@ const handleApply = () => {
       </div>
 
       <div className="flex flex-col gap-2">
-        <button
-          onClick={handleApply}
-          className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-shadow shadow-md active:scale-[0.98]"
-        >
-          <Check size={18} /> 에디터에 적용하기
-        </button>
-        {onCancel && (
+        {applyStatus === 'idle' && (
+          <button
+            onClick={handleApply}
+            className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-shadow shadow-md active:scale-[0.98]"
+          >
+            <Check size={18} /> 에디터에 적용하기
+          </button>
+        )}
+
+        {applyStatus === 'applying' && (
+          <div className="w-full flex items-center justify-center gap-2 bg-blue-50 border border-blue-200 text-blue-600 py-3 rounded-lg font-bold shadow-sm cursor-default">
+            <Loader2 className="animate-spin" size={18} /> 
+            에디터에 내용을 구성 중입니다...
+          </div>
+        )}
+
+        {applyStatus === 'success' && (
+          <div className="w-full flex items-center justify-center gap-2 bg-green-50 border border-green-200 text-green-700 py-3 rounded-lg font-bold shadow-sm cursor-default animate-in fade-in zoom-in duration-300">
+            <Check size={18} /> 에디터에 적용 완료
+          </div>
+        )}
+        
+        {applyStatus === 'idle' && onCancel && (
           <button
             onClick={onCancel}
             className="w-full flex items-center justify-center gap-1 bg-gray-100 text-gray-500 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
