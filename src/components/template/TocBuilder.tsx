@@ -1,15 +1,133 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { Check, Plus, GripVertical, Trash2, Edit2, X } from 'lucide-react'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+  defaultDropAnimationSideEffects,
+  DragStartEvent,
+  DragMoveEvent,
+  DragEndEvent,
+  DragOverEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
-// ✨ 인터페이스에 templateHtml 추가
-interface TocItem { 
+export interface TocItem { 
   id: string; 
   level: number; 
   text: string; 
   templateHtml?: string; 
 }
+
+const INDENT_WIDTH = 24; // 1.5rem in pixels roughly
+
+// Sortable Item Component
+interface SortableTocItemProps {
+  item: TocItem;
+  depth: number;
+  isEditing: boolean;
+  onEdit: (id: string) => void;
+  onUpdateText: (id: string, text: string) => void;
+  onStopEdit: () => void;
+  onRemove: (id: string) => void;
+  isClone?: boolean;
+  isGhost?: boolean;
+}
+
+function SortableTocItem({
+  item,
+  depth,
+  isEditing,
+  onEdit,
+  onUpdateText,
+  onStopEdit,
+  onRemove,
+  isClone,
+  isGhost
+}: SortableTocItemProps) {
+  const {
+    attributes,
+    listeners,
+    setDraggableNodeRef,
+    setDroppableNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    marginLeft: `${(depth - 1) * 1.5}rem`,
+    opacity: isGhost ? 0.3 : 1,
+  };
+
+  const wrapperClass = `flex items-center gap-2 p-2 bg-gray-50 rounded-md border border-transparent transition-colors group
+    ${isClone ? 'shadow-xl bg-blue-50 border-blue-300' : 'hover:border-blue-300 hover:bg-blue-50'}
+    ${isDragging && !isClone ? 'opacity-30' : ''}
+  `;
+
+  return (
+    <div
+      ref={setDroppableNodeRef}
+      style={style}
+      className={isGhost ? 'relative' : ''}
+    >
+      <div
+        ref={setDraggableNodeRef}
+        className={wrapperClass}
+      >
+        <div 
+          {...attributes} 
+          {...listeners} 
+          className="cursor-move p-1 -m-1"
+        >
+          <GripVertical size={14} className="text-gray-400 group-hover:text-blue-400" />
+        </div>
+        
+        {isEditing ? (
+          <input
+            type="text"
+            value={item.text}
+            onChange={(e) => onUpdateText(item.id, e.target.value)}
+            onBlur={onStopEdit}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
+              if (e.key === 'Enter') onStopEdit();
+            }}
+            autoFocus
+            className="flex-1 text-sm font-medium text-gray-700 bg-transparent outline-none border-b border-blue-300 px-1"
+          />
+        ) : (
+          <span className="flex-1 text-sm font-medium text-gray-700">{item.text}</span>
+        )}
+
+        <div className={`flex items-center gap-1 ${isClone ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+          <button onClick={() => onEdit(item.id)} className="p-1 text-blue-400 hover:text-blue-600">
+            <Edit2 size={14} />
+          </button>
+          <button onClick={() => onRemove(item.id)} className="p-1 text-red-400 hover:text-red-600">
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 export default function TocBuilder({ 
   title: initialTitle, 
@@ -25,8 +143,50 @@ export default function TocBuilder({
   onCancel?: () => void
 }) {
   const [items, setItems] = useState<TocItem[]>(initialItems);
-  const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [newItemText, setNewItemText] = useState('');
+  
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  const [offsetLeft, setOffsetLeft] = useState(0);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const activeItem = useMemo(
+    () => items.find((item) => item.id === activeId),
+    [activeId, items]
+  );
+
+  const getProjectedDepth = () => {
+    if (!activeId || !overId) return null;
+    
+    const activeIndex = items.findIndex((item) => item.id === activeId);
+    const overIndex = items.findIndex((item) => item.id === overId);
+    
+    const activeItem = items[activeIndex];
+    const newItems = arrayMove(items, activeIndex, overIndex);
+    
+    const previousItem = newItems[overIndex - 1];
+    
+    const dragDepth = Math.round(offsetLeft / INDENT_WIDTH);
+    const projectedDepth = activeItem.level + dragDepth;
+    
+    const maxDepth = Math.min(3, previousItem ? previousItem.level + 1 : 1);
+    const minDepth = 1;
+    
+    let depth = projectedDepth;
+    if (depth > maxDepth) depth = maxDepth;
+    if (depth < minDepth) depth = minDepth;
+    
+    return { depth, newIndex: overIndex };
+  };
+
+  const projectedInfo = getProjectedDepth();
 
   // 특정 항목 텍스트 변경
   const updateItemText = (id: string, newText: string) => {
@@ -39,21 +199,57 @@ export default function TocBuilder({
     setItems([...items, newItem]);
   };
 
+  const handleAddCustomItem = () => {
+    if (!newItemText.trim()) return;
+    addItem(newItemText.trim());
+    setNewItemText('');
+  };
+
   // 항목 삭제
   const removeItem = (id: string) => {
     setItems(items.filter(item => item.id !== id));
   };
 
-  // 드래그 앤 드롭 로직 (Native HTML5)
-  const handleDragStart = (index: number) => setDraggedItemIndex(index);
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    if (draggedItemIndex === null || draggedItemIndex === index) return;
-    const newItems = [...items];
-    const draggedItem = newItems.splice(draggedItemIndex, 1)[0];
-    newItems.splice(index, 0, draggedItem);
-    setDraggedItemIndex(index);
-    setItems(newItems);
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+    setOverId(event.active.id as string);
+  };
+
+  const handleDragMove = (event: DragMoveEvent) => {
+    setOffsetLeft(event.delta.x);
+    if (event.over?.id) {
+      setOverId(event.over.id as string);
+    }
+  };
+
+  const handleDragOver = (event: DragOverEvent) => {
+    if (event.over?.id) {
+      setOverId(event.over.id as string);
+    }
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    
+    if (projectedInfo && over) {
+      const { depth, newIndex } = projectedInfo;
+      const activeIndex = items.findIndex((item) => item.id === active.id);
+      
+      const newItems = arrayMove(items, activeIndex, newIndex);
+      newItems[newIndex] = { ...newItems[newIndex], level: depth };
+      
+      setItems(newItems);
+    }
+    
+    setActiveId(null);
+    setOverId(null);
+    setOffsetLeft(0);
+  };
+
+  const handleDragCancel = () => {
+    setActiveId(null);
+    setOverId(null);
+    setOffsetLeft(0);
   };
 
 const handleApply = () => {
@@ -61,7 +257,7 @@ const handleApply = () => {
     
     let html = `<div style="font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; line-height: 1.6; color: #111827;">\n`;
     
-    // 문서 커버 템플릿 (이 부분은 문서의 공통 규격이므로 남겨두는 것을 권장합니다)
+    // 문서 커버 템플릿
     html += `
       <div style="text-align: center; padding: 60pt 0; border-bottom: 2pt solid #1e3a8a; margin-bottom: 40pt;">
         <h1 style="font-size: 36pt; font-weight: bold; color: #1e3a8a; margin-bottom: 60pt;">${initialTitle}</h1>
@@ -102,44 +298,90 @@ const handleApply = () => {
       </div>
 
       {/* 목차 리스트 (드래그 가능 영역) */}
-      <div className="space-y-2 mb-6">
-        {items.map((item, index) => (
-          <div 
-            key={item.id}
-            draggable={editingId !== item.id}
-            onDragStart={() => handleDragStart(index)}
-            onDragOver={(e) => handleDragOver(e, index)}
-            className={`flex items-center gap-2 p-2 bg-gray-50 rounded-md border border-transparent hover:border-blue-300 hover:bg-blue-50 transition-all group ${editingId !== item.id ? 'cursor-move' : ''}`}
-            style={{ marginLeft: `${(item.level - 1) * 1.5}rem` }}
-          >
-            <GripVertical size={14} className="text-gray-400 group-hover:text-blue-400" />
-            
-            {editingId === item.id ? (
-              <input
-                type="text"
-                value={item.text}
-                onChange={(e) => updateItemText(item.id, e.target.value)}
-                onBlur={() => setEditingId(null)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') setEditingId(null);
-                }}
-                autoFocus
-                className="flex-1 text-sm font-medium text-gray-700 bg-transparent outline-none border-b border-blue-300 px-1"
-              />
-            ) : (
-              <span className="flex-1 text-sm font-medium text-gray-700">{item.text}</span>
-            )}
+      <div className="space-y-2 mb-4 relative">
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragMove={handleDragMove}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+          onDragCancel={handleDragCancel}
+        >
+          <SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}>
+            {items.map((item) => {
+              const isGhost = activeId === item.id;
+              let depth = item.level;
+              
+              if (projectedInfo && activeId === item.id) {
+                depth = projectedInfo.depth;
+              }
 
-            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1">
-              <button onClick={() => setEditingId(item.id)} className="p-1 text-blue-400 hover:text-blue-600">
-                <Edit2 size={14} />
-              </button>
-              <button onClick={() => removeItem(item.id)} className="p-1 text-red-400 hover:text-red-600">
-                <Trash2 size={14} />
-              </button>
-            </div>
-          </div>
-        ))}
+              return (
+                <SortableTocItem
+                  key={item.id}
+                  item={item}
+                  depth={depth}
+                  isEditing={editingId === item.id}
+                  onEdit={setEditingId}
+                  onUpdateText={updateItemText}
+                  onStopEdit={() => setEditingId(null)}
+                  onRemove={removeItem}
+                  isGhost={isGhost}
+                />
+              );
+            })}
+          </SortableContext>
+
+          {/* Indicator for projected drop location */}
+          {projectedInfo && activeId && (
+            <div
+              className="absolute left-0 right-0 h-0.5 bg-blue-500 pointer-events-none transition-all duration-150 z-10"
+              style={{
+                top: `${projectedInfo.newIndex * 48}px`, // Approximate item height
+                marginLeft: `${(projectedInfo.depth - 1) * 1.5}rem`,
+                marginTop: projectedInfo.newIndex === 0 ? '-4px' : '44px',
+              }}
+            />
+          )}
+
+          <DragOverlay>
+            {activeId && activeItem ? (
+              <SortableTocItem
+                item={activeItem}
+                depth={projectedInfo?.depth ?? activeItem.level}
+                isEditing={false}
+                onEdit={() => {}}
+                onUpdateText={() => {}}
+                onStopEdit={() => {}}
+                onRemove={() => {}}
+                isClone
+              />
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      </div>
+
+      {/* 사용자 직접 입력 폼 추가 */}
+      <div className="flex gap-2 mb-6">
+        <input
+          type="text"
+          value={newItemText}
+          onChange={(e) => setNewItemText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
+            if (e.key === 'Enter') handleAddCustomItem();
+          }}
+          placeholder="새 목차 항목 직접 입력..."
+          className="flex-1 text-sm font-medium text-gray-700 bg-white outline-none border border-gray-200 focus:border-blue-400 rounded-md px-3 py-2 transition-colors shadow-sm"
+        />
+        <button
+          onClick={handleAddCustomItem}
+          disabled={!newItemText.trim()}
+          className="flex items-center gap-1 bg-blue-50 text-blue-600 px-3 py-2 rounded-md text-sm font-bold hover:bg-blue-100 disabled:opacity-50 transition-colors"
+        >
+          <Plus size={16} /> 추가
+        </button>
       </div>
 
       {/* 추천 항목 영역 */}
