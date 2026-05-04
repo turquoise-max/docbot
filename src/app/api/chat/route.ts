@@ -1,4 +1,3 @@
-import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { streamText, tool, convertToModelMessages } from 'ai'
 import { z } from 'zod'
@@ -12,7 +11,7 @@ const litellm = createOpenAICompatible({
 })
 
 export async function POST(req: Request) {
-  const { messages, editorContext, selectedHtml, selectedText } = await req.json()
+  const { messages, editorContext, selectedText } = await req.json()
 
   const isDocumentEmpty = !editorContext || editorContext.trim().length < 50;
 

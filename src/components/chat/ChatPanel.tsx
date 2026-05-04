@@ -26,7 +26,7 @@ function UpdateEditorTool({
   args: { modifiedHtml?: string; textBefore?: string; targetText?: string; textAfter?: string }
   toolCallId: string
   toolName: string
-  addToolOutput: (options: any) => void
+  addToolOutput: (options: { tool: string; toolCallId: string; output: any }) => void
 }) {
   const { editorRef } = useEditor()
   const [status, setStatus] = useState<'pending' | 'applied' | 'rejected'>('pending')
@@ -107,7 +107,7 @@ function UpdateTableTool({
   args: { targetKeyword?: string; tableData?: string[][] }
   toolCallId: string
   toolName: string
-  addToolOutput: (options: any) => void
+  addToolOutput: (options: { tool: string; toolCallId: string; output: any }) => void
 }) {
   const { editorRef } = useEditor()
   const [status, setStatus] = useState<'pending' | 'applied' | 'rejected'>('pending')
@@ -241,22 +241,12 @@ export default function ChatPanel({
     }
   })
 
-  const handleTriggerMessage = () => {
-    sendMessage(undefined, {
-      body: {
-        selectedHtml,
-        selectedText,
-        editorContext: truncatedContext,
-      },
-    })
-  }
-
   const isStreaming = status === 'submitted' || status === 'streaming'
 
   const hasPendingTool = messages.some((m: UIMessage) => 
-    m.parts?.some((part: any) => 
+    m.parts?.some((part) => 
       part.type.startsWith('tool-') && 
-      (part.state === 'input-streaming' || part.state === 'input-available')
+      ('state' in part && (part.state === 'input-streaming' || part.state === 'input-available'))
     )
   )
 
@@ -270,11 +260,11 @@ export default function ChatPanel({
 
     if (hasPendingTool) {
       messages.forEach((m: UIMessage) => {
-        m.parts?.forEach((part: any) => {
-          if (part.type.startsWith('tool-') && (part.state === 'input-streaming' || part.state === 'input-available')) {
+        m.parts?.forEach((part) => {
+          if (part.type.startsWith('tool-') && 'state' in part && (part.state === 'input-streaming' || part.state === 'input-available')) {
             addToolOutput({
               tool: part.type.replace('tool-', ''),
-              toolCallId: part.toolCallId,
+              toolCallId: (part as any).toolCallId,
               output: '사용자가 도구 사용을 무시하고 새로운 채팅을 입력하여 실행이 취소되었습니다.'
             })
           }
@@ -357,19 +347,19 @@ export default function ChatPanel({
         )}
       </div>
       
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages
                 .filter((m: UIMessage) => {
-                  const textContent = m.parts 
-                    ? m.parts.filter(p => p.type === 'text').map((p: any) => p.text).join('')
-                    : (m as any).content || (m as any).text || '';
+                  const textContent: string = m.parts 
+                    ? m.parts.filter(p => p.type === 'text').map(p => 'text' in p ? String(p.text) : '').join('')
+                    : String(('content' in m ? m.content : ('text' in m ? m.text : '')) || '');
                   
                   return !(m.role === 'user' && textContent === INITIAL_PROMPT);
                 })
                 .map((m: UIMessage) => {
-                  const textContent = m.parts 
-                    ? m.parts.filter(p => p.type === 'text').map((p: any) => p.text).join('')
-                    : (m as any).content || (m as any).text || '';
+                  const textContent: string = m.parts 
+                    ? m.parts.filter(p => p.type === 'text').map(p => 'text' in p ? String(p.text) : '').join('')
+                    : String(('content' in m ? m.content : ('text' in m ? m.text : '')) || '');
 
                   return (
                     <div key={m.id} className={cn("flex flex-col gap-2", m.role === 'user' ? "items-end" : "items-start")}>
