@@ -7,12 +7,12 @@ export const maxDuration = 30
 
 const litellm = createOpenAICompatible({
   name: 'litellm',
-  baseURL: process.env.LITELLM_BASE_UR ?? 'https://litellm.must.codes',
+  baseURL: process.env.LITELLM_BASE_URL ?? 'https://litellm.must.codes',
   apiKey: process.env.LITELLM_API_KEY ?? undefined,
 })
 
 export async function POST(req: Request) {
-  const { messages, editorContext, selectedText } = await req.json()
+  const { messages, editorContext, selectedText, selectedHtml } = await req.json()
 
   // 컨텍스트 전송 전략 최적화
   const lastUserMessage = messages[messages.length - 1]?.content || '';
@@ -51,6 +51,7 @@ export async function POST(req: Request) {
 [현재 문서 컨텍스트]
 - 전체 문서 내용: ${effectiveContext ? effectiveContext : '아직 내용이 없습니다.'}
 - 선택된 텍스트: ${selectedText ? selectedText : '없음'}
+- 선택된 HTML(원본 SFDT): ${selectedHtml ? selectedHtml : '없음'}
 ${contextInstruction ? `\n[컨텍스트 운용 지침]\n${contextInstruction}\n` : ''}
 - 만약 사용자가 명시적으로 선택한 텍스트(선택된 텍스트)가 없다면, 현재까지 파악된 문서 내용을 바탕으로 수정해야 할 위치를 스스로 찾아야 합니다.
 

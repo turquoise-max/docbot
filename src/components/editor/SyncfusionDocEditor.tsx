@@ -538,6 +538,7 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         const editor = containerRef.current?.documentEditor;
         if (!editor) return false;
 
+        let originalUser: string | undefined;
         try {
           let foundTable = false;
           if (editor.searchModule) {
@@ -559,7 +560,7 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           // @ts-expect-error syncfusion types might be incomplete
           editor.selection.navigateTable('FirstCell');
 
-          const originalUser = editor.currentUser;
+          originalUser = editor.currentUser;
           editor.enableTrackChanges = true;
           editor.currentUser = 'AI Assistant';
 
@@ -568,7 +569,7 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
               editor.selection.selectCell();
               editor.editor.delete();
               editor.editor.insertText(tableData[r][c]);
-              
+
               if (c < tableData[r].length - 1) {
                 // @ts-expect-error syncfusion types might be incomplete
                 editor.selection.navigateTable('NextCell');
@@ -580,7 +581,6 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
             }
           }
 
-          editor.currentUser = originalUser;
           // enableTrackChanges = false를 제거하여 수락/거절 시점에 끄도록 위임
           return true;
         } catch (error) {
@@ -589,6 +589,10 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
             editor.enableTrackChanges = false;
           }
           return false;
+        } finally {
+          if (editor && originalUser !== undefined) {
+            editor.currentUser = originalUser;
+          }
         }
       },
     }));

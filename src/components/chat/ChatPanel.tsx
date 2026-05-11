@@ -54,11 +54,6 @@ function UpdateEditorTool({
         .then((success: boolean | void) => {
           if (success === false) {
             setStatus('rejected')
-            addToolOutput({
-              tool: toolName,
-              toolCallId,
-              output: '시스템 알림: 텍스트를 찾지 못했습니다. 사용자에게 "수정하실 부분을 직접 드래그한 후 다시 요청해주세요."라고 안내하세요.'
-            })
           }
         })
     }
@@ -81,14 +76,37 @@ function UpdateEditorTool({
 
   if (status === 'rejected') {
     return (
-      <div className="max-w-[85%] w-full p-3 bg-yellow-50 border border-yellow-200 rounded-lg mt-2">
-        <p className="text-xs font-medium text-yellow-800">
-          수정할 위치를 찾지 못했습니다.
+      <div className="max-w-[85%] w-full p-4 bg-yellow-50 border border-yellow-200 rounded-lg mt-2">
+        <div className="flex items-center gap-2 text-yellow-800 mb-2">
+          <AlertCircle size={16} />
+          <p className="text-sm font-bold">수정할 위치를 찾지 못했습니다.</p>
+        </div>
+        <p className="text-xs text-yellow-700 mb-4 leading-relaxed">
+          수정할 텍스트를 드래그로 선택 후 아래 버튼을 클릭하거나, 수정을 포기할 수 있습니다.
         </p>
-        <p className="text-xs text-yellow-700 mt-1">
-          수정하실 텍스트를 직접 드래그로 선택한 후 
-          같은 요청을 다시 해주세요.
-        </p>
+        <div className="flex gap-2">
+          <button 
+            onClick={() => {
+              hasPreviewed.current = false
+              setStatus('pending')
+            }}
+            className="flex-1 bg-yellow-600 text-white py-2 rounded-md text-xs font-medium hover:bg-yellow-700 transition-colors"
+          >
+            다시 시도
+          </button>
+          <button 
+            onClick={() => {
+              addToolOutput({
+                tool: toolName,
+                toolCallId,
+                output: '시스템 알림: 텍스트를 찾지 못해 사용자가 수정을 포기했습니다.'
+              })
+            }}
+            className="flex-1 bg-white border border-yellow-200 text-yellow-700 py-2 rounded-md text-xs font-medium hover:bg-yellow-50 transition-colors"
+          >
+            포기
+          </button>
+        </div>
       </div>
     )
   }
@@ -111,7 +129,6 @@ function UpdateEditorTool({
           onClick={() => {
             if (editorRef?.current) editorRef.current.rejectPreview()
             setStatus('rejected')
-            addToolOutput({ tool: toolName, toolCallId, output: '사용자가 수정 사항을 거절했습니다.' })
           }}
           className="flex-1 flex items-center justify-center gap-1 bg-white border border-gray-200 text-gray-600 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
         >
@@ -220,7 +237,10 @@ function UpdateTableTool({
         </button>
       </div>
     </div>
-  )
+    )
+  }
+
+  return null
 }
 
 // ==================== Main ChatPanel ====================
@@ -295,7 +315,46 @@ export default function ChatPanel({
     onError: (err) => {
       alert('챗 서버와의 통신 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
       console.error('Chat error:', err);
-    }
+    },
+    onFinish: async (message) => {
+      if (!documentId) return;
+      try {
+        const { createClient } = await import('@/lib/supabase/client');
+        const supabase = createClient();
+
+        // assistant 메시지 저장
+        const textContent = message.parts
+          ?.filter(p => p.type === 'text')
+          .map((p: any) => p.text)
+          .join('') || '';
+
+        if (textContent) {
+          await supabase.from('chat_messages').insert({
+            document_id: documentId,
+            role: 'assistant',
+            content: textContent,
+          });
+        }
+
+        // 직전 user 메시지도 저장 (messages 배열의 마지막 user 메시지)
+        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+        if (lastUserMsg) {
+          const userText = lastUserMsg.parts
+            ?.filter(p => p.type === 'text')
+            .map((p: any) => p.text)
+            .join('') || '';
+          if (userText && userText !== INITIAL_PROMPT) {
+            await supabase.from('chat_messages').insert({
+              document_id: documentId,
+              role: 'user',
+              content: userText,
+            });
+          }
+        }
+      } catch (err) {
+        console.error('채팅 메시지 저장 실패:', err);
+      }
+    },
   })
 
   const isStreaming = status === 'submitted' || status === 'streaming'
