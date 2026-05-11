@@ -102,12 +102,32 @@ ${workflowPrompt}
 
       // 🚨 변경점: targetType('table')을 스키마에서 완전히 제거!
       updateEditor: tool({
-        description: '🚨 문서의 일반 텍스트(단락) 수정 요청 시 반드시 호출. (주의: 표 수정 시에는 절대 사용 금지)',
+        description: `🚨 문서의 일반 텍스트(단락) 수정 요청 시 반드시 호출.
+    (주의: 표 수정 시에는 절대 사용 금지)
+    
+    [위치 지정 가이드 - 반드시 준수]
+    - targetText: 수정할 원본 문장을 정확히 복사. 
+      줄바꿈 포함 가능하나 최대 2문장 이내로 제한.
+      문서에 실제로 존재하는 텍스트만 입력할 것.
+    - targetKeyword: targetText에서 가장 고유한 핵심 단어 1~2개.
+      (예: targetText가 "1분기 매출 현황 분석"이면 
+       targetKeyword는 "매출 현황" 또는 "1분기 분석")
+    - textBefore: 수정 위치 바로 앞 문장 (1문장, 20자 내외)
+    - textAfter: 수정 위치 바로 뒤 문장 (1문장, 20자 내외)`,
         inputSchema: z.object({
           modifiedHtml: z.string().describe('적용할 최종 HTML'),
-          targetText: z.string().optional().describe("수정할 원본 텍스트"),
-          textBefore: z.string().optional().describe('수정할 부분 바로 앞의 텍스트'),
-          textAfter: z.string().optional().describe('수정할 부분 바로 뒤의 텍스트'),
+          targetText: z.string().optional().describe(
+            '수정할 원본 텍스트 (문서에 실제 존재하는 텍스트, 최대 2문장)'
+          ),
+          targetKeyword: z.string().optional().describe(
+            'targetText 안의 가장 고유한 핵심 단어 1~2개. 검색에 우선 사용됨.'
+          ),
+          textBefore: z.string().optional().describe(
+            '수정할 부분 바로 앞 문장 (20자 내외)'
+          ),
+          textAfter: z.string().optional().describe(
+            '수정할 부분 바로 뒤 문장 (20자 내외)'
+          ),
         }),
       }),
 

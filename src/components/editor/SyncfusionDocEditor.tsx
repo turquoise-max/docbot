@@ -136,7 +136,14 @@ export interface SyncfusionDocEditorRef {
   replaceSelection: (text: string) => Promise<void>;
   loadDocument: (sfdt: string) => void;
   getSfdt: () => string;
-  previewSelection: (html: string, textBefore?: string, targetText?: string, textAfter?: string, targetType?: 'text' | 'table') => Promise<boolean>;
+  previewSelection: (
+    html: string,
+    textBefore?: string,
+    targetText?: string,
+    textAfter?: string,
+    targetType?: 'text' | 'table',
+    targetKeyword?: string
+  ) => Promise<boolean>;
   acceptPreview: () => void;
   rejectPreview: () => void;
   exportAsDocx: (fileName: string) => void;
@@ -229,11 +236,23 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         }
       },
 
-      previewSelection: async (html: string, textBefore?: string, targetText?: string, textAfter?: string, targetType?: 'text' | 'table'): Promise<boolean> => {
+      previewSelection: async (
+        html: string,
+        textBefore?: string,
+        targetText?: string,
+        textAfter?: string,
+        targetType?: 'text' | 'table',
+        targetKeyword?: string
+      ): Promise<boolean> => {
         const editor = containerRef.current?.documentEditor;
         if (!editor) return false;
 
         let originalUser: string | undefined;
+
+        const normalize = (s: string) =>
+          s.replace(/[\r\n]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
 
         try {
           const tempBookmark = 'ai_temp_position_' + Date.now();
@@ -242,7 +261,7 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
 
           editor.selection.selectAll();
           const fullText = editor.selection.text || '';
-          
+
           editor.selection.selectBookmark(tempBookmark);
           editor.editor.deleteBookmark(tempBookmark);
 
@@ -251,74 +270,149 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           let bestScore = -1;
           let foundSomething = false;
 
-          // --- ✨ 3단 검색 및 표(Table) 타겟팅 로직 ---
+          // --- 텍스트 탐색 다단계 폴백 전략 ---
           if (editor.searchModule) {
-            const searchQueries: string[] = [];
-            
-            if (targetText) {
-              searchQueries.push(targetText); // 1순위
-              // 2순위: 긴 줄바꿈 문장 추출
-              const lines = targetText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 2);
-              if (lines.length > 0) {
-                const longestLine = lines.reduce((a, b) => a.length > b.length ? a : b, "");
-                searchQueries.push(longestLine);
-              }
-            } else if (textBefore) {
-              searchQueries.push(textBefore); // 3순위
-            }
-
-            for (const query of searchQueries) {
-              if (!query) continue;
+            // [0단계] targetKeyword 우선 검색
+            if (targetKeyword) {
+              console.log(`0단계 시도: ${targetKeyword}`);
               // @ts-expect-error syncfusion types might be incomplete
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const results: any[] = editor.searchModule.findAll(query, 'None');
-              
-              if (results && results.length > 0) {
+              const results: any[] = editor.searchModule.findAll(targetKeyword, 'None');
+              if (results && results.length === 1) {
+                bestMatchResult = results[0];
+                console.log('0단계 성공 (단일 매칭)');
+              } else if (results && results.length > 1) {
                 let searchStartIndex = 0;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 results.forEach((res: any) => {
-                  let score = 1; 
-                  const matchIndex = fullText.indexOf(query, searchStartIndex);
-                  
+                  let score = 100; // Keyword 매칭 시 기본 가점
+                  const matchIndex = fullText.indexOf(targetKeyword, searchStartIndex);
                   if (matchIndex !== -1) {
                     if (textBefore) {
-                      const actualBefore = fullText.substring(Math.max(0, matchIndex - textBefore.length - 20), matchIndex);
-                      if (actualBefore.replace(/\s/g, '').includes(textBefore.replace(/\s/g, ''))) score += 10;
+                      const actualBefore = fullText.substring(Math.max(0, matchIndex - textBefore.length - 40), matchIndex);
+                      if (normalize(actualBefore).includes(normalize(textBefore))) score += 50;
                     }
                     if (textAfter) {
-                      const actualAfter = fullText.substring(matchIndex + query.length, matchIndex + query.length + textAfter.length + 20);
-                      if (actualAfter.replace(/\s/g, '').includes(textAfter.replace(/\s/g, ''))) score += 10;
+                      const actualAfter = fullText.substring(matchIndex + targetKeyword.length, matchIndex + targetKeyword.length + textAfter.length + 40);
+                      if (normalize(actualAfter).includes(normalize(textAfter))) score += 50;
                     }
-                    searchStartIndex = matchIndex + query.length;
+                    searchStartIndex = matchIndex + targetKeyword.length;
                   }
                   if (score > bestScore) {
                     bestScore = score;
                     bestMatchResult = res;
                   }
                 });
-                if (bestMatchResult) break;
+                console.log(`0단계 결과 (복수 매칭 중 최고 점수: ${bestScore})`);
+              }
+            }
+
+            // [1단계] targetText 전체 검색
+            if (!bestMatchResult && targetText) {
+              console.log(`1단계 시도: ${targetText}`);
+              // @ts-expect-error syncfusion types might be incomplete
+              const results: any[] = editor.searchModule.findAll(targetText, 'None');
+              if (results && results.length > 0) {
+                bestMatchResult = results[0]; // 전체 매칭 시 우선 신뢰
+                console.log('1단계 성공');
+              }
+            }
+
+            // [2단계] targetText 정규화 후 검색
+            if (!bestMatchResult && targetText) {
+              const normalizedQuery = normalize(targetText);
+              console.log(`2단계 시도: ${normalizedQuery}`);
+              // Syncfusion findAll은 완전 일치를 찾으므로 정규화된 텍스트가 에디터 내부의 정규화된 텍스트와 일치해야 함
+              // 하지만 findAll 자체가 정규화 검색을 지원하지 않으므로, 이 단계는 findAll 대신 수동 인덱스 탐색 후 해당 텍스트를 findAll 하는 식으로 우회하거나,
+              // 혹은 targetText 내부의 핵심 구를 찾아 시도함. 여기서는 공백이 제거된 버전으로 시도.
+              // @ts-expect-error syncfusion types might be incomplete
+              const results: any[] = editor.searchModule.findAll(normalizedQuery, 'None');
+              if (results && results.length > 0) {
+                bestMatchResult = results[0];
+                console.log('2단계 성공');
+              }
+            }
+
+            // [3단계] 문장 단위 분할 검색
+            if (!bestMatchResult && targetText) {
+              const sentences = targetText.split(/[.!?\r\n]+/).map(s => s.trim()).filter(s => s.length > 5);
+              sentences.sort((a, b) => b.length - a.length); // 긴 문장 우선
+              for (const sentence of sentences) {
+                console.log(`3단계 시도: ${sentence}`);
+                // @ts-expect-error syncfusion types might be incomplete
+                const results: any[] = editor.searchModule.findAll(sentence, 'None');
+                if (results && results.length > 0) {
+                  bestMatchResult = results[0];
+                  console.log(`3단계 성공 (${sentence})`);
+                  break;
+                }
+              }
+            }
+
+            // [4단계] 핵심 키워드 추출 검색 (4글자 이상)
+            if (!bestMatchResult && targetText) {
+              const words = targetText.split(/\s+/).filter(w => w.length >= 4);
+              if (words.length > 0) {
+                console.log(`4단계 시도 (단어 추출): ${words.join(', ')}`);
+                for (const word of words) {
+                  // @ts-expect-error syncfusion types might be incomplete
+                  const results: any[] = editor.searchModule.findAll(word, 'None');
+                  if (results && results.length > 0) {
+                    let searchStartIndex = 0;
+                    results.forEach((res: any) => {
+                      let score = word.length;
+                      const matchIndex = fullText.indexOf(word, searchStartIndex);
+                      if (matchIndex !== -1) {
+                        if (textBefore) {
+                          const actualBefore = fullText.substring(Math.max(0, matchIndex - textBefore.length - 40), matchIndex);
+                          if (normalize(actualBefore).includes(normalize(textBefore))) score += 20;
+                        }
+                        if (textAfter) {
+                          const actualAfter = fullText.substring(matchIndex + word.length, matchIndex + word.length + textAfter.length + 40);
+                          if (normalize(actualAfter).includes(normalize(textAfter))) score += 20;
+                        }
+                        searchStartIndex = matchIndex + word.length;
+                      }
+                      if (score > bestScore) {
+                        bestScore = score;
+                        bestMatchResult = res;
+                      }
+                    });
+                  }
+                }
+                if (bestMatchResult) console.log('4단계 성공');
+              }
+            }
+
+            // [5단계] textBefore만으로 위치 추정
+            if (!bestMatchResult && textBefore) {
+              const normalizedBefore = normalize(textBefore);
+              console.log(`5단계 시도: ${normalizedBefore}`);
+              // @ts-expect-error syncfusion types might be incomplete
+              const results: any[] = editor.searchModule.findAll(normalizedBefore, 'None');
+              if (results && results.length > 0) {
+                bestMatchResult = results[results.length - 1]; // 보통 마지막 발생 지점 다음이 수정 위치인 경우가 많음
+                console.log('5단계 성공 (textBefore 기반)');
               }
             }
 
             if (bestMatchResult) {
               editor.searchModule.navigate(bestMatchResult);
               foundSomething = true;
-              
+
               // 🚀 핵심: AI가 표(Table)를 타겟팅한 경우
               if (targetType === 'table') {
                 try {
-                  // 검색된 단어의 위치(표 내부)에서 '표 전체 선택' 명령 실행
                   editor.selection.selectTable();
                 } catch (e) {
                   console.warn("표 선택에 실패했습니다.", e);
                 }
-              } else if (!targetText && textBefore && bestMatchResult.text === textBefore) {
-                // 문맥으로만 찾았을 땐 다음 위치로 넘어가기
-                editor.selection.moveToNextCharacter();
+              } else if (normalize(bestMatchResult.text) === normalize(textBefore || '')) {
+                // 5단계 등 textBefore로 찾은 경우 매칭 위치 바로 다음 문단으로 이동
+                editor.selection.moveToNextParagraph();
+                // 해당 문단 전체 선택
+                editor.selection.selectParagraph();
               }
             }
           }
-          // -----------------------------------------------------
 
           if (!foundSomething && hadSelection) {
             foundSomething = true;
@@ -487,8 +581,7 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           }
 
           editor.currentUser = originalUser;
-          // 셀 단위 업데이트에서는 track changes를 끄는 것이 안전할 수 있음
-          editor.enableTrackChanges = false;
+          // enableTrackChanges = false를 제거하여 수락/거절 시점에 끄도록 위임
           return true;
         } catch (error) {
           console.error('표 업데이트 실패:', error);

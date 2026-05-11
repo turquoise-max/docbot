@@ -23,7 +23,13 @@ function UpdateEditorTool({
   toolName,
   addToolOutput
 }: { 
-  args: { modifiedHtml?: string; textBefore?: string; targetText?: string; textAfter?: string }
+  args: { 
+    modifiedHtml?: string; 
+    textBefore?: string; 
+    targetText?: string; 
+    textAfter?: string;
+    targetKeyword?: string;
+  }
   toolCallId: string
   toolName: string
   addToolOutput: (options: { tool: string; toolCallId: string; output: string }) => void
@@ -37,7 +43,14 @@ function UpdateEditorTool({
     if (status === 'pending' && !hasPreviewed.current && editorRef?.current) {
       hasPreviewed.current = true
       
-      editorRef.current.previewSelection(args.modifiedHtml, args.textBefore, args.targetText, args.textAfter)
+      editorRef.current.previewSelection(
+        args.modifiedHtml, 
+        args.textBefore, 
+        args.targetText, 
+        args.textAfter,
+        'text',
+        args.targetKeyword
+      )
         .then((success: boolean | void) => {
           if (success === false) {
             setStatus('rejected')
@@ -66,7 +79,19 @@ function UpdateEditorTool({
     )
   }
 
-  if (status === 'rejected') return null
+  if (status === 'rejected') {
+    return (
+      <div className="max-w-[85%] w-full p-3 bg-yellow-50 border border-yellow-200 rounded-lg mt-2">
+        <p className="text-xs font-medium text-yellow-800">
+          수정할 위치를 찾지 못했습니다.
+        </p>
+        <p className="text-xs text-yellow-700 mt-1">
+          수정하실 텍스트를 직접 드래그로 선택한 후 
+          같은 요청을 다시 해주세요.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
@@ -110,7 +135,7 @@ function UpdateTableTool({
   addToolOutput: (options: { tool: string; toolCallId: string; output: string }) => void
 }) {
   const { editorRef } = useEditor()
-  const [status, setStatus] = useState<'pending' | 'applied' | 'rejected'>('pending')
+  const [status, setStatus] = useState<'pending' | 'previewing' | 'applied' | 'rejected'>('pending')
   const hasPreviewed = useRef(false)
 
   useEffect(() => {
@@ -128,6 +153,8 @@ function UpdateTableTool({
               toolCallId,
               output: '시스템 알림: 표를 찾지 못했습니다. 사용자에게 "수정하실 표를 직접 드래그한 후 다시 요청해주세요."라고 안내하세요.'
             })
+          } else {
+            setStatus('previewing')
           }
         })
     }
@@ -148,20 +175,35 @@ function UpdateTableTool({
     )
   }
 
-  if (status === 'rejected') return null
+  if (status === 'rejected') {
+    return (
+      <div className="max-w-[85%] w-full p-3 bg-yellow-50 border border-yellow-200 rounded-lg mt-2">
+        <p className="text-xs font-medium text-yellow-800">
+          표를 찾지 못했습니다.
+        </p>
+        <p className="text-xs text-yellow-700 mt-1">
+          수정하실 표를 직접 드래그로 선택한 후 
+          같은 요청을 다시 해주세요.
+        </p>
+      </div>
+    )
+  }
 
-  return (
-    <div className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
-      {/* ✨ 표 전용 UI 문구 */}
-      <p className="text-sm font-bold text-blue-700 mb-3">AI가 생성한 표 데이터를 적용할까요?</p>
-      
-      <div className="flex gap-2">
-        <button 
-          onClick={() => {
-            if (editorRef?.current) editorRef.current.acceptPreview()
-            setStatus('applied')
-            addToolOutput({ tool: toolName, toolCallId, output: '사용자가 표 수정 사항을 수락했습니다.' })
-          }}
+  if (status === 'previewing') {
+    return (
+      <div className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
+        <p className="text-sm font-bold text-blue-700 mb-1">AI가 생성한 표 데이터를 적용할까요?</p>
+        <p className="text-xs text-blue-600 mb-3">
+          {args.tableData.length}행 × {args.tableData[0]?.length || 0}열 표가 에디터에 반영되었습니다. 변경 내용을 확인 후 수락하세요.
+        </p>
+        
+        <div className="flex gap-2">
+          <button 
+            onClick={() => {
+              if (editorRef?.current) editorRef.current.acceptPreview()
+              setStatus('applied')
+              addToolOutput({ tool: toolName, toolCallId, output: '사용자가 표 수정 사항을 수락했습니다.' })
+            }}
           className="flex-1 flex items-center justify-center gap-1 bg-blue-600 text-white py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
         >
           <Check size={16} /> 수락

@@ -27,7 +27,8 @@ export default function DashboardPage() {
 
   const [user, setUser] = useState<any>(null)
   const [documents, setDocuments] = useState<any[]>([])
-  const [selectedFolderId] = useState<string | null>(null)
+  const [folders, setFolders] = useState<any[]>([])
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
@@ -62,6 +63,14 @@ export default function DashboardPage() {
       .order('updated_at', { ascending: false })
 
     setDocuments(docs || [])
+
+    const { data: folderList } = await supabase
+      .from('folders')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('name', { ascending: true })
+
+    setFolders(folderList || [])
     setIsLoading(false)
   }, [supabase, router])
 
@@ -244,6 +253,40 @@ export default function DashboardPage() {
     <div className="flex h-screen bg-white" onClick={() => setOpenMenuId(null)}>
       <AppSidebar variant="wide" />
 
+      {/* Sidebar Folders Section */}
+      <aside className="w-64 border-r flex flex-col bg-gray-50/50 shrink-0">
+        <div className="p-6">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 px-2">폴더</h2>
+          <nav className="space-y-1">
+            <button
+              onClick={() => setSelectedFolderId(null)}
+              className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                selectedFolderId === null 
+                  ? 'bg-blue-50 text-blue-700' 
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <FileText size={18} />
+              모든 문서
+            </button>
+            {folders.map(folder => (
+              <button
+                key={folder.id}
+                onClick={() => setSelectedFolderId(folder.id)}
+                className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  selectedFolderId === folder.id 
+                    ? 'bg-blue-50 text-blue-700' 
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <Folder size={18} />
+                <span className="truncate">{folder.name}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
+      </aside>
+
       <main className="flex-1 flex flex-col min-w-0">
         {/* Header */}
         <header className="h-16 border-b flex items-center justify-between px-8 bg-white shrink-0">
@@ -274,7 +317,12 @@ export default function DashboardPage() {
         {/* Content */}
         <div className="flex-1 overflow-auto p-8">
           <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-xl font-bold text-gray-900">모든 문서</h2>
+            <h2 className="text-xl font-bold text-gray-900">
+              {selectedFolderId 
+                ? folders.find(f => f.id === selectedFolderId)?.name || '폴더'
+                : '모든 문서'
+              }
+            </h2>
             <span className="text-sm text-gray-500">총 {filteredDocuments.length}개</span>
           </div>
 

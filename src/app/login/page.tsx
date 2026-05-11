@@ -17,7 +17,12 @@ export default function LoginPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
       <div className="p-8 bg-white rounded-lg shadow-md w-full max-w-md border border-gray-100">
-        <h1 className="text-2xl font-bold mb-6 text-center text-gray-800">DocBot 로그인</h1>
+        <div className="flex flex-col items-center gap-4 mb-8">
+          <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-blue-100">
+            문
+          </div>
+          <h1 className="text-2xl font-bold text-center text-gray-800">문서봇 로그인</h1>
+        </div>
         <p className="text-gray-600 mb-8 text-center">
           서비스를 이용하려면 구글 계정으로 로그인해주세요.
         </p>
@@ -46,6 +51,9 @@ export default function LoginPage() {
           Google로 계속하기
         </button>
       </div>
+      <footer className="mt-8 text-gray-400 text-sm">
+        &copy; 2026 문서봇
+      </footer>
     </div>
   )
 }
