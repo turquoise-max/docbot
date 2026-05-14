@@ -134,7 +134,7 @@ export interface SyncfusionDocEditorRef {
   getText: () => string;
   getSelectionText: () => string;
   replaceSelection: (text: string) => Promise<void>;
-  loadDocument: (sfdt: string) => void;
+  loadDocument: (content: string) => Promise<void>;
   getSfdt: () => string;
   previewSelection: (
     html: string,
@@ -515,10 +515,36 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         }
       },
 
-      loadDocument: (sfdt: string) => {
+      loadDocument: async (content: string) => {
         const editor = containerRef.current?.documentEditor;
-        if (editor && sfdt) {
-          editor.open(sfdt);
+        if (editor && content) {
+          try {
+            // 내용이 JSON 객체의 시작인 '{' 로 시작하는지 아주 간단히 판별
+            const trimmed = content.trim();
+            if (trimmed.startsWith('{')) {
+              // SFDT (Syncfusion Document Format) JSON
+              editor.open(content);
+            } else {
+              // 일반 HTML 문자열인 경우 변환 API를 통해 SFDT로 로드
+              editor.openBlank(); // 빈 문서로 초기화
+              try {
+                const response = await fetch('/api/document/convert-html', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ html: content }),
+                });
+                if (!response.ok) throw new Error('Conversion failed');
+                const sfdt = await response.text();
+                editor.open(sfdt);
+              } catch (convErr) {
+                console.error('HTML 변환 실패 후 일반 텍스트로 폴백:', convErr);
+                // HTML 파싱이 안되는 에러가 났을 때 최후의 보루로 그냥 텍스트로 삽입
+                editor.editor.insertText(content);
+              }
+            }
+          } catch (e) {
+            console.error('문서 로드 중 오류:', e);
+          }
         }
       },
 

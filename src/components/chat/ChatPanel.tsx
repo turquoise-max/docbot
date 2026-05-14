@@ -323,10 +323,7 @@ export default function ChatPanel({
         const supabase = createClient();
 
         // assistant 메시지 저장
-        const textContent = message.parts
-          ?.filter(p => p.type === 'text')
-          .map((p: any) => p.text)
-          .join('') || '';
+        const textContent = (message as any).message?.content || (message as any).content || '';
 
         if (textContent) {
           await supabase.from('chat_messages').insert({

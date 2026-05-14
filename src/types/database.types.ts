@@ -48,6 +48,7 @@ export interface Database {
           created_at: string
           updated_at: string
           file_path: string | null
+          is_favorite?: boolean | null
         }
         Insert: {
           id?: string
@@ -64,6 +65,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
           file_path?: string | null
+          is_favorite?: boolean | null
         }
         Update: {
           id?: string
@@ -80,6 +82,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
           file_path?: string | null
+          is_favorite?: boolean | null
         }
       }
       templates: {

@@ -2,9 +2,8 @@
 
 import React from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
-import { LayoutDashboard, LogOut } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { usePathname } from 'next/navigation'
+import { LayoutDashboard, FolderOpen } from 'lucide-react'
 
 interface AppSidebarProps {
   variant: 'wide' | 'narrow'
@@ -12,16 +11,10 @@ interface AppSidebarProps {
 
 export default function AppSidebar({ variant }: AppSidebarProps) {
   const pathname = usePathname()
-  const router = useRouter()
-  const supabase = createClient()
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
 
   const menuItems = [
     { name: '대시보드', icon: LayoutDashboard, href: '/dashboard' },
+    { name: '내 파일', icon: FolderOpen, href: '/mydrive' },
   ]
 
   const isWide = variant === 'wide'
@@ -32,7 +25,7 @@ export default function AppSidebar({ variant }: AppSidebarProps) {
         isWide ? 'w-56' : 'w-14'
       } border-r bg-gray-50 flex flex-col transition-all duration-300 flex-shrink-0 h-full`}
     >
-      <div className={`p-4 border-b flex items-center ${isWide ? 'justify-start gap-2' : 'justify-center'}`}>
+      <div className={`h-16 border-b flex items-center px-4 ${isWide ? 'justify-start gap-2' : 'justify-center'}`}>
         <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold flex-shrink-0 text-sm">
           문
         </div>
@@ -61,19 +54,6 @@ export default function AppSidebar({ variant }: AppSidebarProps) {
           )
         })}
       </nav>
-
-      <div className="p-2 border-t">
-        <button
-          onClick={handleLogout}
-          className={`flex items-center w-full rounded-md text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors ${
-            isWide ? 'px-3 py-2 gap-3' : 'p-2 justify-center'
-          }`}
-          title={!isWide ? '로그아웃' : undefined}
-        >
-          <LogOut size={20} />
-          {isWide && <span className="truncate">로그아웃</span>}
-        </button>
-      </div>
     </aside>
   )
 }

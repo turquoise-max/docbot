@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import ChatPanel from '@/components/chat/ChatPanel'
 import AppSidebar from '@/components/layout/AppSidebar'
+import Header from '@/components/layout/Header'
 import VersionHistoryPanel from '@/components/editor/VersionHistoryPanel'
 import { createClient } from '@/lib/supabase/client'
 import SyncfusionDocEditor from '@/components/editor/SyncfusionDocEditor'
@@ -11,9 +12,10 @@ import { EditorProvider, useEditor } from '@/contexts/EditorContext'
 import ErrorBoundary from '@/components/common/ErrorBoundary'
 import { FileX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { creationIntentStore } from '@/lib/store/creationIntent'
 
 // 로딩 단계를 정의합니다.
-type LoadingStep = 'idle' | 'downloading' | 'importing' | 'rendering' | 'complete';
+type LoadingStep = 'idle' | 'creating' | 'downloading' | 'importing' | 'rendering' | 'complete';
 
 export default function EditorPage() {
   const params = useParams()
@@ -44,6 +46,7 @@ function EditorContentInner() {
   // 자동저장 관련 refs 및 상태
   const lastTypingTimeRef = useRef<number>(0)
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
+  const initializationStartedRef = useRef(false)
 
   // 핵심 개선: 이벤트 기반 초기화 로직
   const handleContentChange = useCallback((text: string) => {
@@ -60,96 +63,158 @@ function EditorContentInner() {
   useEffect(() => {
     let safetyTimer: NodeJS.Timeout;
 
-    const fetchDocument = async () => {
-      if (!documentId) {
-        setIsInitializing(false);
+    const initializeDocument = async () => {
+      if (!documentId || initializationStartedRef.current) {
         return;
       }
+      
+      initializationStartedRef.current = true;
 
       try {
-        setLoadingStep('downloading'); // 1단계: 다운로드 시작
-        const { data, error } = await supabase
-          .from('documents')
-          .select('*')
-          .eq('id', documentId)
-          .single();
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) throw new Error("Unauthorized")
 
-        if (error) {
-          setHasLoadError(true);
-          throw error;
-        }
+        // 1. 인텐트(의도) 확인
+        const intent = creationIntentStore.getIntent(documentId)
+        
+        if (intent) {
+          // 새로 생성하는 프로세스
+          setLoadingStep('creating');
+          creationIntentStore.removeIntent(documentId); // 처리 후 스토어에서 제거
+          
+          const insertData: any = {
+            id: documentId, // 라우팅된 ID를 그대로 사용
+            title: intent.title,
+            user_id: user.id
+          };
 
-        if (data) {
-          setTitle(data.title);
-
-          if (data.file_path || data.content_html) {
-            setIsNewDocument(false);
-          } else {
+          if (intent.type === 'empty' || intent.type === 'template') {
+            insertData.content_html = intent.html;
+            
+            const { error } = await supabase.from('documents').insert(insertData);
+            if (error) throw error;
+            
+            setTitle(intent.title || '');
             setIsNewDocument(true);
+            setLoadingStep('rendering');
+            editorRef.current?.loadDocument(intent.html || '');
+            
+          } else if (intent.type === 'upload' && intent.file) {
+            setLoadingStep('downloading'); // 업로드 중이지만 UX상 다운로드 스텝 텍스트 활용
+            
+            const fileExt = intent.file.name.split('.').pop();
+            const fileName = `${Math.random()}.${fileExt}`;
+            const filePath = `${user.id}/documents/${fileName}`;
+
+            // 스토리지 업로드
+            const { error: uploadError } = await supabase.storage
+              .from('files')
+              .upload(filePath, intent.file);
+
+            if (uploadError) throw uploadError;
+
+            // DB 레코드 생성
+            insertData.file_path = filePath;
+            const { error: insertError } = await supabase.from('documents').insert(insertData);
+            if (insertError) throw insertError;
+
+            setTitle(intent.title || '');
+            setIsNewDocument(false);
+            
+            // 서버 변환 시작
+            setLoadingStep('importing');
+            const formData = new FormData();
+            formData.append('document', intent.file, 'document.docx');
+
+            const response = await fetch('/api/document/import', {
+              method: 'POST',
+              body: formData,
+            });
+
+            if (response.ok) {
+              const sfdt = await response.text();
+              setLoadingStep('rendering');
+              editorRef.current?.loadDocument(sfdt);
+            } else {
+              throw new Error('변환 실패');
+            }
           }
 
-          if (data.file_path) {
-            const { data: fileData, error: downloadError } = await supabase.storage
-              .from('files')
-              .download(data.file_path);
+        } else {
+          // 기존 문서 불러오는 프로세스
+          setLoadingStep('downloading');
+          const { data, error } = await supabase
+            .from('documents')
+            .select('*')
+            .eq('id', documentId)
+            .single();
 
-            if (downloadError) throw downloadError;
+          if (error) throw error;
 
-            if (fileData) {
-              setLoadingStep('importing'); // 2단계: 서버 변환 시작
-              const formData = new FormData();
-              formData.append('document', fileData, 'document.docx');
+          if (data) {
+            setTitle(data.title);
 
-              const response = await fetch('/api/document/import', {
-                method: 'POST',
-                body: formData,
-              });
-
-              if (response.ok) {
-                const sfdt = await response.text();
-                setLoadingStep('rendering'); // 3단계: 에디터 렌더링 시작
-                
-                editorRef.current?.loadDocument(sfdt);
-
-                // 안전장치: 이벤트가 발생하지 않더라도 10초 후에는 강제 로드 시도
-                safetyTimer = setTimeout(() => {
-                  if (isInitializing) {
-                    const text = editorRef.current?.getText() || '';
-                    setContent(text);
-                    setIsInitializing(false);
-                    setLoadingStep('complete');
-                  }
-                }, 10000); 
-
-              } else {
-                setHasLoadError(true);
-                setIsInitializing(false);
-              }
+            if (data.file_path || data.content_html) {
+              setIsNewDocument(false);
+            } else {
+              setIsNewDocument(true);
             }
-          } else if (data.content_html) {
-            setLoadingStep('rendering');
-            editorRef.current?.loadDocument(data.content_html);
-            safetyTimer = setTimeout(() => {
-              if (isInitializing) {
-                const text = editorRef.current?.getText() || '';
-                setContent(text);
-                setIsInitializing(false);
-                setLoadingStep('complete');
+
+            if (data.file_path) {
+              const { data: fileData, error: downloadError } = await supabase.storage
+                .from('files')
+                .download(data.file_path);
+
+              if (downloadError) throw downloadError;
+
+              if (fileData) {
+                setLoadingStep('importing');
+                const formData = new FormData();
+                formData.append('document', fileData, 'document.docx');
+
+                const response = await fetch('/api/document/import', {
+                  method: 'POST',
+                  body: formData,
+                });
+
+                if (response.ok) {
+                  const sfdt = await response.text();
+                  setLoadingStep('rendering');
+                  editorRef.current?.loadDocument(sfdt);
+                } else {
+                  throw new Error('변환 실패');
+                }
               }
-            }, 10000);
-          } else {
-            setIsInitializing(false); // 빈 문서인 경우
+            } else if (data.content_html) {
+              setLoadingStep('rendering');
+              editorRef.current?.loadDocument(data.content_html);
+            } else {
+              setIsInitializing(false);
+              setLoadingStep('complete');
+            }
+          }
+        }
+
+        // 공통 안전장치 (렌더링 이후)
+        safetyTimer = setTimeout(() => {
+          if (isInitializing) {
+            const text = editorRef.current?.getText() || '';
+            setContent(text);
+            setIsInitializing(false);
             setLoadingStep('complete');
           }
-        }
+        }, 10000); 
+
       } catch (error) {
-        console.error('Failed to fetch document:', error);
+        console.error('Failed to initialize document:', error);
         setHasLoadError(true);
         setIsInitializing(false);
       }
     };
 
-    fetchDocument();
+    if (!initializationStartedRef.current) {
+      initializeDocument();
+    }
 
     return () => {
       if (safetyTimer) clearTimeout(safetyTimer);
@@ -159,7 +224,8 @@ function EditorContentInner() {
   // 로딩 메시지 맵핑
   const loadingMessages = {
     idle: '준비 중...',
-    downloading: '파일을 업로드하고 있습니다...',
+    creating: '새 문서를 생성하는 중입니다...',
+    downloading: '파일을 처리하고 있습니다...',
     importing: '문서 형식을 변환하는 중입니다...',
     rendering: '에디터에 내용을 구성하고 있습니다...',
     complete: '완료!'
@@ -370,8 +436,8 @@ function EditorContentInner() {
 
       {/* 에디터 영역 */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 border-b flex items-center px-6 justify-between bg-white">
-          <div className="flex items-center gap-4 min-w-0 flex-1 mr-4">
+        <Header>
+          <div className="flex items-center gap-4 min-w-0 flex-1 mr-4 w-full">
             <span className="text-sm font-medium text-gray-500 underline decoration-gray-300 shrink-0">내 문서</span>
             {isEditingTitle ? (
               <input
@@ -395,7 +461,7 @@ function EditorContentInner() {
             <span className="text-gray-400 text-[10px] shrink-0 ml-1">●</span>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 mr-4">
           {(isSaving || saveStatus === 'saving') && <span className="text-xs text-gray-400 animate-pulse">저장 중...</span>}
           <button 
             onClick={() => setIsHistoryOpen(true)}
@@ -412,7 +478,7 @@ function EditorContentInner() {
           </button>
           <button onClick={handleExport} className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700">내보내기</button>
         </div>
-        </header>
+        </Header>
 
         <div className="flex-1 relative bg-[#f0f0f0]">
           <div className="absolute inset-0">
