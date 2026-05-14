@@ -45,7 +45,6 @@ export default function ArchivePage() {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   
@@ -197,7 +196,6 @@ export default function ArchivePage() {
 
     setDocuments(prev => prev.filter(doc => doc.id !== id))
     setSelectedIds(prev => prev.filter(selectedId => selectedId !== id))
-    setOpenMenuId(null)
   }
 
   const handleBulkDelete = async () => {
@@ -309,7 +307,7 @@ export default function ArchivePage() {
     creationIntentStore.setIntent(id, {
       type: 'empty',
       title: '제목 없는 문서',
-      html: '<h1>제목 없는 문서</h1><p><br/></p>'
+      html: '<p><br/></p>'
     })
     
     router.push(`/editor/${id}`)
@@ -379,7 +377,7 @@ export default function ArchivePage() {
   })
 
   return (
-    <div className="flex h-screen bg-white" onClick={() => { setOpenMenuId(null); setOpenFolderMenuId(null); }}>
+    <div className="flex h-screen bg-white" onClick={() => { setOpenFolderMenuId(null); }}>
       <AppSidebar variant="wide" />
 
       {/* Main Content Area Container */}
@@ -503,7 +501,7 @@ export default function ArchivePage() {
           <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
             {/* Content */}
             <div className="flex-1 overflow-auto p-8">
-          <div className="mb-6 flex items-center justify-between">
+          <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                 {selectedFolderId 
@@ -547,6 +545,44 @@ export default function ArchivePage() {
               </div>
             </div>
           </div>
+
+          {/* Selection Toolbar (Inline) */}
+          {selectedIds.length > 0 && (
+            <div className="mb-6 bg-blue-50 border border-blue-200 text-blue-900 px-4 py-2.5 rounded-lg flex items-center justify-between shadow-sm animate-in fade-in slide-in-from-top-2">
+              <div className="flex items-center gap-3">
+                <span className="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full">{selectedIds.length}</span>
+                <span className="text-sm font-medium">개 선택됨</span>
+              </div>
+              
+              <div className="flex items-center gap-1">
+                <button onClick={handleBulkMove} className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md hover:bg-blue-100 transition-colors text-blue-700">
+                  <FolderOutput size={16} />
+                  이동
+                </button>
+                <button 
+                  onClick={() => {
+                    selectedIds.forEach(id => {
+                      const doc = documents.find(d => d.id === id)
+                      if (doc) handleDownload(doc)
+                    })
+                  }} 
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md hover:bg-blue-100 transition-colors text-blue-700"
+                >
+                  <Download size={16} />
+                  다운로드
+                </button>
+                <button onClick={handleBulkDelete} className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md hover:bg-red-50 transition-colors text-red-600">
+                  <Trash2 size={16} />
+                  삭제
+                </button>
+                <div className="border-l border-blue-200 pl-2 ml-1 flex items-center">
+                   <button onClick={() => setSelectedIds([])} className="p-1.5 hover:bg-blue-100 rounded-md text-blue-400 hover:text-blue-700 transition-colors" title="선택 해제">
+                     <X size={18} />
+                   </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {isLoading ? (
             <div className="space-y-4">
@@ -596,7 +632,7 @@ export default function ArchivePage() {
               ) : (
                 <>
                 {viewMode === 'list' ? (
-                <div className="bg-white rounded-lg shadow-sm overflow-hidden pb-20">
+                <div className="bg-white rounded-lg shadow-sm overflow-hidden">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
@@ -608,8 +644,8 @@ export default function ArchivePage() {
                           </button>
                         </th>
                         <th className="px-4 py-4 font-semibold">제목</th>
-                        <th className="px-6 py-4 font-semibold w-48">최종 수정일</th>
-                        <th className="px-6 py-4 font-semibold w-24 text-center">액션</th>
+                        <th className="px-6 py-4 font-semibold w-32 whitespace-nowrap">최종 수정일</th>
+                        <th className="px-6 py-4 font-semibold w-32 whitespace-nowrap">생성일</th>
                       </tr>
                     </thead>
                     <tbody className="text-sm">
@@ -617,7 +653,7 @@ export default function ArchivePage() {
                         const isSelected = selectedIds.includes(doc.id)
                         return (
                         <tr key={doc.id} className={`border-b transition-colors group ${isSelected ? 'bg-blue-50/50' : 'hover:bg-gray-50'}`}>
-                          <td className="px-4 py-4 text-center">
+                          <td className="px-4 py-4 text-center w-12">
                             <button onClick={() => toggleSelection(doc.id)} className="text-gray-400 hover:text-blue-600">
                               {isSelected ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} />}
                             </button>
@@ -659,67 +695,19 @@ export default function ArchivePage() {
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-gray-500">
+                        <td className="px-6 py-4 text-gray-500 whitespace-nowrap">
                           {new Date(doc.updated_at).toLocaleDateString('ko-KR', {
                             year: 'numeric',
                             month: 'long',
                             day: 'numeric'
                           })}
                         </td>
-                        <td className="px-6 py-4 relative text-center">
-                          <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button 
-                              onClick={() => handleDownload(doc)}
-                              className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" 
-                              title="다운로드"
-                            >
-                              <Download size={16} />
-                            </button>
-                            <div className="relative">
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setOpenMenuId(openMenuId === doc.id ? null : doc.id)
-                                }}
-                                className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-200 rounded transition-colors"
-                              >
-                                <MoreVertical size={16} />
-                              </button>
-                              {openMenuId === doc.id && (
-                              <div className="absolute right-0 mt-1 w-36 bg-white border rounded shadow-xl z-20 py-1 overflow-hidden">
-                                <button
-                                  onClick={() => {
-                                    setEditingId(doc.id)
-                                    setEditingTitle(doc.title)
-                                    setOpenMenuId(null)
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                                >
-                                  <Edit2 size={14} />
-                                  제목 수정
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setMovingDocId(doc.id)
-                                    setIsMoveModalOpen(true)
-                                    setOpenMenuId(null)
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2 border-b border-gray-100"
-                                >
-                                  <FolderOutput size={14} />
-                                  이동
-                                </button>
-                                <button
-                                  onClick={() => handleDelete(doc.id)}
-                                  className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                                >
-                                  <Trash2 size={14} />
-                                  삭제
-                                </button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
+                        <td className="px-6 py-4 text-gray-500 whitespace-nowrap">
+                          {new Date(doc.created_at || doc.updated_at).toLocaleDateString('ko-KR', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
+                          })}
                         </td>
                       </tr>
                       )
@@ -728,7 +716,7 @@ export default function ArchivePage() {
                 </table>
               </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 pb-20">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                   {filteredDocuments.map(doc => {
                     const isSelected = selectedIds.includes(doc.id)
                     return (
@@ -748,67 +736,6 @@ export default function ArchivePage() {
                           >
                             <Star size={16} fill={doc.is_favorite ? "currentColor" : "none"} />
                           </button>
-                          <div className="relative">
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setOpenMenuId(openMenuId === doc.id ? null : doc.id)
-                              }}
-                              className="p-1 bg-white/80 backdrop-blur rounded text-gray-400 hover:text-gray-900 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <MoreVertical size={16} />
-                            </button>
-                            {openMenuId === doc.id && (
-                              <div className="absolute right-0 mt-1 w-36 bg-white border rounded shadow-xl py-1 overflow-hidden">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setEditingId(doc.id)
-                                    setEditingTitle(doc.title)
-                                    setOpenMenuId(null)
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                                >
-                                  <Edit2 size={14} />
-                                  제목 수정
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setMovingDocId(doc.id)
-                                    setIsMoveModalOpen(true)
-                                    setOpenMenuId(null)
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2 border-b border-gray-100"
-                                >
-                                  <FolderOutput size={14} />
-                                  이동
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleDownload(doc)
-                                    setOpenMenuId(null)
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2 border-b border-gray-100"
-                                >
-                                  <Download size={14} />
-                                  다운로드
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleDelete(doc.id)
-                                    setOpenMenuId(null)
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                                >
-                                  <Trash2 size={14} />
-                                  삭제
-                                </button>
-                              </div>
-                            )}
-                          </div>
                         </div>
                         
                         <Link href={`/editor/${doc.id}`} className="flex-1 flex flex-col items-center justify-center mb-2">
@@ -855,45 +782,6 @@ export default function ArchivePage() {
           </ErrorBoundary>
         )}
       </div>
-        {/* Floating Action Bar */}
-        {selectedIds.length > 0 && (
-          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 animate-in slide-in-from-bottom-4 z-40">
-            <div className="flex items-center gap-2 border-r border-gray-700 pr-6">
-              <span className="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full">{selectedIds.length}</span>
-              <span className="text-sm font-medium text-gray-200">개 선택됨</span>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <button onClick={handleBulkMove} className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded hover:bg-gray-800 transition-colors text-gray-300 hover:text-white">
-                <FolderOutput size={16} />
-                이동
-              </button>
-              <button 
-                onClick={() => {
-                  selectedIds.forEach(id => {
-                    const doc = documents.find(d => d.id === id)
-                    if (doc) handleDownload(doc)
-                  })
-                }} 
-                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded hover:bg-gray-800 transition-colors text-gray-300 hover:text-white"
-              >
-                <Download size={16} />
-                다운로드
-              </button>
-              <button onClick={handleBulkDelete} className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded hover:bg-red-900/50 transition-colors text-red-400 hover:text-red-300">
-                <Trash2 size={16} />
-                삭제
-              </button>
-            </div>
-            
-            <div className="border-l border-gray-700 pl-4 ml-2">
-               <button onClick={() => setSelectedIds([])} className="p-1 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors" title="선택 해제">
-                 <X size={18} />
-               </button>
-            </div>
-          </div>
-            )}
-
           </main>
         </div>
       </div>

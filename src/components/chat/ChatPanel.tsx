@@ -259,8 +259,6 @@ export default function ChatPanel({
   const { selectedHtml, selectedText, editorRef } = useEditor()
   const [showHistoryError, setShowHistoryError] = useState(false)
 
-  const INITIAL_PROMPT = '업로드된 문서의 구조와 핵심 내용을 분석해서 요약해줘. "[문서 구조 분석 브리핑]" 이라는 제목으로 시작하고, 앞으로 내가 질문하거나 수정을 요청할 때 이 전체 구조를 기억하고 문맥에 맞게 답변해줘.'
-  
   const hasInitializedAnalyizeRef = useRef(false)
 
   const [width, setWidth] = useState(600)
@@ -340,7 +338,7 @@ export default function ChatPanel({
             ?.filter(p => p.type === 'text')
             .map((p: any) => p.text)
             .join('') || '';
-          if (userText && userText !== INITIAL_PROMPT) {
+          if (userText) {
             await supabase.from('chat_messages').insert({
               document_id: documentId,
               role: 'user',
@@ -437,29 +435,22 @@ export default function ChatPanel({
   useEffect(() => {
     if (messages.length > 0 || hasInitializedAnalyizeRef.current) return
 
-    if (!isNewDocument) {
-      hasInitializedAnalyizeRef.current = true
-      sendMessage({ text: INITIAL_PROMPT }, {
-        body: {
-          selectedHtml,
-          selectedText,
-          editorContext: truncatedContext,
-        }
-      })
-    } else {
-      hasInitializedAnalyizeRef.current = true
-      setMessages([
-        {
-          id: 'initial-onboarding',
-          role: 'assistant',
-          parts: [{ 
-            type: 'text', 
-            text: '새로운 문서를 시작하시네요! 👋\n\n어떤 종류의 문서를 작성하실 계획인가요?\n(예: IT 서비스 사업계획서, 주간 운영 보고서, 제안서, 기획안 등)' 
-          }],
-        }
-      ])
-    }
-  }, [messages.length, isNewDocument, sendMessage, setMessages, truncatedContext, INITIAL_PROMPT, selectedHtml, selectedText, editorContext])
+    hasInitializedAnalyizeRef.current = true
+
+    // 초기 안내 메시지 (DB에 저장되지 않음)
+    setMessages([
+      {
+        id: 'initial-greeting',
+        role: 'assistant',
+        parts: [{ 
+          type: 'text', 
+          text: isNewDocument 
+            ? '새로운 문서를 시작하시네요! 👋\n\n어떤 종류의 문서를 작성하실 계획인가요?\n(예: IT 서비스 사업계획서, 주간 운영 보고서, 제안서, 기획안 등)'
+            : '안녕하세요! 문서를 수정하거나 궁금한 점이 있으시면 언제든 말씀해주세요. 👋'
+        }],
+      }
+    ])
+  }, [messages.length, isNewDocument, setMessages])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -501,15 +492,6 @@ export default function ChatPanel({
       
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages
-                .filter((m: UIMessage) => {
-                  const textContent = m.parts 
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    ? m.parts.filter(p => p.type === 'text').map((p: any) => p.text).join('')
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    : (m as any).content || (m as any).text || '';
-                  
-                  return !(m.role === 'user' && textContent === INITIAL_PROMPT);
-                })
                 .map((m: UIMessage) => {
                   const textContent = m.parts 
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any

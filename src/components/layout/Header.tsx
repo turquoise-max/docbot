@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Lightbulb, User, Settings, LogOut } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -15,6 +15,17 @@ export default function Header({ children }: HeaderProps) {
   const supabase = createClient()
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false)
+  const [user, setUser] = useState<any>(null)
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setUser(user)
+      }
+    }
+    fetchUser()
+  }, [supabase])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -63,7 +74,24 @@ export default function Header({ children }: HeaderProps) {
                 className="fixed inset-0 z-40"
                 onClick={() => setIsProfileOpen(false)}
               />
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-100 py-1 z-50">
+              <div className="absolute right-0 mt-2 w-64 bg-white rounded-md shadow-lg border border-gray-100 py-1 z-50">
+                {user && (
+                  <div className="px-4 py-3 border-b border-gray-100 mb-1">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+                        <User size={20} />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-semibold text-gray-900 truncate">
+                          {user.user_metadata?.full_name || user.user_metadata?.name || '사용자'}
+                        </span>
+                        <span className="text-xs text-gray-500 truncate">
+                          {user.email}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <button
                   onClick={handleSettings}
                   className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"

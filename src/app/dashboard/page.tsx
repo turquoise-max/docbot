@@ -95,7 +95,7 @@ export default function NewDashboardPage() {
     creationIntentStore.setIntent(id, {
       type: 'empty',
       title: '제목 없는 문서',
-      html: '<h1>제목 없는 문서</h1><p><br/></p>'
+      html: '<p><br/></p>'
     })
     
     router.push(`/editor/${id}`)
@@ -260,9 +260,6 @@ export default function NewDashboardPage() {
                 <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                   <Clock size={18} className="text-gray-400" /> 최근 작업
                 </h2>
-                <Link href="/mydrive" className="text-sm font-medium text-blue-600 hover:text-blue-700">
-                  전체보기
-                </Link>
               </div>
               <div className="flex-1 overflow-y-auto p-2">
                 {isLoading ? (

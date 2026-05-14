@@ -130,6 +130,15 @@ if (syncfusionLicenseKey) {
 // Inject required modules
 DocumentEditorContainerComponent.Inject(Toolbar, Search);
 
+// 간소화된 툴바 설정 (Syncfusion 컨테이너에서 공식 지원하는 항목들만 배치)
+const CUSTOM_TOOLBAR_ITEMS = [
+  'Undo', 'Redo', 'Separator',
+  'Image', 'Table', 'Hyperlink', 'Separator',
+  'Header', 'Footer', 'PageSetup', 'PageNumber', 'Break', 'Separator',
+  'Find', 'Separator',
+  'LocalClipboard'
+];
+
 export interface SyncfusionDocEditorRef {
   getText: () => string;
   getSelectionText: () => string;
@@ -632,6 +641,7 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           width="100%"
           style={containerStyle}
           enableToolbar={true}
+          toolbarItems={CUSTOM_TOOLBAR_ITEMS}
           locale="ko"
           selectionChange={handleSelectionChange}
           contentChange={handleContentChange}
