@@ -190,23 +190,48 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
       props.onSelectionChange(selectedSfdt, selectedText);
     }, [props]);
 
-    const handleContentChange = useCallback(() => {
+    // 네이티브 에디터 API를 통해 렌더링된 전체 텍스트를 추출하는 헬퍼 함수
+    const extractFullTextDirectly = useCallback(() => {
       const editor = containerRef.current?.documentEditor;
-      if (!editor || !props.onContentChange) return;
+      if (!editor) return '';
+      
+      try {
+        // 기존 선택 상태 저장
+        const originalSelectionStart = editor.selection.start;
+        const originalSelectionEnd = editor.selection.end;
+        
+        // 전체 선택하여 텍스트 긁기
+        editor.selection.selectAll();
+        const extractedText = editor.selection.text || '';
+        
+        // 선택 상태 복구
+        if (originalSelectionStart && originalSelectionEnd) {
+          editor.selection.select(originalSelectionStart, originalSelectionEnd);
+        } else {
+          editor.selection.moveToDocumentStart();
+        }
+        
+        return extractedText.trim();
+      } catch (err) {
+        console.error('텍스트 직접 추출 실패:', err);
+        return '';
+      }
+    }, []);
 
-      // @ts-expect-error syncfusion types might be incomplete
-      const fullText = editor.serialize().length > 0 ? editor.text : '';
-      props.onContentChange(fullText || '');
-    }, [props]);
+    const handleContentChange = useCallback(() => {
+      if (!props.onContentChange) return;
+      const text = extractFullTextDirectly();
+      props.onContentChange(text);
+    }, [props, extractFullTextDirectly]);
+
+    const handleDocumentChange = useCallback(() => {
+      // 문서 로드 완료 시에도 확실하게 텍스트 추출
+      handleContentChange();
+    }, [handleContentChange]);
 
     useImperativeHandle(ref, () => ({
       getText: () => {
-        const editor = containerRef.current?.documentEditor;
-        if (!editor) return '';
-        
-        // 커서 이동 없이 에디터의 텍스트만 추출 (성능 최적화 및 깜빡임 방지)
-        // @ts-expect-error syncfusion types might be incomplete
-        return editor.text || '';
+        return extractFullTextDirectly();
       },
 
       getSelectionText: () => {
@@ -645,6 +670,7 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           locale="ko"
           selectionChange={handleSelectionChange}
           contentChange={handleContentChange}
+          documentChange={handleDocumentChange}
         />
       </div>
     );

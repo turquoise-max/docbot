@@ -18,6 +18,8 @@ export function useEditorInit({ documentId, editorRef, setTitle, setContent }: U
   const [step, setStep] = useState<LoadingStep>('idle');
   const [isNewDocument, setIsNewDocument] = useState(false);
   const [folderName, setFolderName] = useState<string | null>(null);
+  const [initialPrompt, setInitialPrompt] = useState<string | null>(null);
+  const [isUploaded, setIsUploaded] = useState(false);
   const initializationStartedRef = useRef(false);
 
   useEffect(() => {
@@ -40,6 +42,9 @@ export function useEditorInit({ documentId, editorRef, setTitle, setContent }: U
         if (intent) {
           // ==================== 새 문서 생성 프로세스 ====================
           setStep('creating');
+          if (intent.prompt) {
+            setInitialPrompt(intent.prompt);
+          }
           creationIntentStore.removeIntent(documentId);
 
           const insertData: any = {
@@ -66,6 +71,7 @@ export function useEditorInit({ documentId, editorRef, setTitle, setContent }: U
 
           } else if (intent.type === 'upload' && intent.file) {
             setStep('downloading'); 
+            setIsUploaded(true);
             
             const fileExt = intent.file.name.split('.').pop();
             const fileName = `${Math.random()}.${fileExt}`;
@@ -97,11 +103,10 @@ export function useEditorInit({ documentId, editorRef, setTitle, setContent }: U
 
             if (!response.ok) throw new Error('변환 실패');
             
-            const sfdt = await response.text();
+            const { sfdt } = await response.json();
+            
             setStep('rendering');
             await editorRef.current?.loadDocument(sfdt);
-            const text = editorRef.current?.getText() || '';
-            setContent(text);
           }
 
         } else {
@@ -130,8 +135,12 @@ export function useEditorInit({ documentId, editorRef, setTitle, setContent }: U
             }
           }
 
-          if (data.file_path) {
-            // 파일 기반 로드
+          if (data.content_html && data.content_html.trim() !== '') {
+            // 🌟 수정: 이미 변환되어 DB에 저장된 SFDT(또는 HTML)가 있다면 우선적으로 불러옵니다! (스피너 방지)
+            setStep('rendering');
+            await editorRef.current?.loadDocument(data.content_html);
+          } else if (data.file_path) {
+            // 🌟 수정: content_html이 비어있을 때만 최후의 수단으로 파일을 다시 다운로드하고 변환합니다.
             const { data: fileData, error: downloadError } = await supabase.storage
               .from('files')
               .download(data.file_path);
@@ -150,22 +159,18 @@ export function useEditorInit({ documentId, editorRef, setTitle, setContent }: U
 
             if (!response.ok) throw new Error('변환 실패');
 
-            const sfdt = await response.text();
+            const { sfdt } = await response.json();
+
             setStep('rendering');
             await editorRef.current?.loadDocument(sfdt);
             
-          } else if (data.content_html) {
-            // HTML/SFDT 기반 로드
-            setStep('rendering');
-            await editorRef.current?.loadDocument(data.content_html);
           } else {
             // 아무 내용도 없는 경우
             setStep('rendering');
             await editorRef.current?.loadDocument('<p><br/></p>');
           }
-
-          const text = editorRef.current?.getText() || '';
-          setContent(text);
+          
+          // documentChange 이벤트가 처리하도록 텍스트 추출 생략
         }
 
         setStep('complete');
@@ -180,5 +185,5 @@ export function useEditorInit({ documentId, editorRef, setTitle, setContent }: U
     initialize();
   }, [documentId, editorRef, setTitle, setContent]);
 
-  return { status, step, isNewDocument, folderName };
+  return { status, step, isNewDocument, folderName, initialPrompt, isUploaded };
 }

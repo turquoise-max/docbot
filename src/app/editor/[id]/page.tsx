@@ -42,7 +42,7 @@ function EditorContentInner() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
 
   // 커스텀 훅을 통한 초기화
-  const { status: initStatus, step: loadingStep, isNewDocument, folderName } = useEditorInit({
+  const { status: initStatus, step: loadingStep, isNewDocument, folderName, initialPrompt, isUploaded } = useEditorInit({
     documentId,
     editorRef,
     setTitle,
@@ -375,6 +375,9 @@ function EditorContentInner() {
             documentId={documentId}
             editorContext={content}
             isNewDocument={isNewDocument}
+            initialPrompt={initialPrompt || undefined}
+            isUploaded={isUploaded}
+            isReady={initStatus === 'ready'}
           />
         </ErrorBoundary>
       )}

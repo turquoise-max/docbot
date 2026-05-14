@@ -30,10 +30,9 @@ export async function POST(req: Request) {
     }
 
     const sfdt = await response.text();
-    return new NextResponse(sfdt, {
-      headers: {
-        'Content-Type': 'text/plain',
-      },
+
+    return NextResponse.json({
+      sfdt: sfdt
     });
   } catch (error) {
     console.error('Document import error:', error);

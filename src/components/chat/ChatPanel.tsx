@@ -249,17 +249,26 @@ interface ChatPanelProps {
   documentId: string;
   editorContext: string;
   isNewDocument?: boolean;
+  initialPrompt?: string;
+  isUploaded?: boolean;
+  isReady?: boolean;
 }
+
+const HIDDEN_ANALYZE_PROMPT = "[SYSTEM: 현재 에디터에 로드된 문서의 구조를 분석하고 요약 리포트를 작성해줘]";
 
 export default function ChatPanel({ 
   documentId,
   editorContext,
-  isNewDocument = false
+  isNewDocument = false,
+  initialPrompt,
+  isUploaded = false,
+  isReady = false
 }: ChatPanelProps) {
   const { selectedHtml, selectedText, editorRef } = useEditor()
   const [showHistoryError, setShowHistoryError] = useState(false)
 
   const hasInitializedAnalyizeRef = useRef(false)
+  const [isHistoryLoaded, setIsHistoryLoaded] = useState(false)
 
   const [width, setWidth] = useState(600)
   const [isResizing, setIsResizing] = useState(false)
@@ -320,8 +329,49 @@ export default function ChatPanel({
         const { createClient } = await import('@/lib/supabase/client');
         const supabase = createClient();
 
+        // 직전 user 메시지 저장 (먼저 저장하여 순서 보장)
+        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+        if (lastUserMsg) {
+          const userText = lastUserMsg.parts
+            ?.filter((p: any) => p.type === 'text')
+            .map((p: any) => p.text)
+            .join('') || lastUserMsg.content || '';
+            
+          if (userText) {
+            // 이미 저장된 동일한 사용자 메시지가 최근에 있는지 확인 (중복 저장 방지)
+            const { data: existingUserMsg } = await supabase
+              .from('chat_messages')
+              .select('id, created_at')
+              .eq('document_id', documentId)
+              .eq('role', 'user')
+              .eq('content', userText)
+              .order('created_at', { ascending: false })
+              .limit(1);
+              
+            // 5초 이내에 동일한 메시지가 저장되었다면 중복으로 간주
+            const isDuplicate = existingUserMsg && existingUserMsg.length > 0 && 
+              (new Date().getTime() - new Date(existingUserMsg[0].created_at).getTime() < 5000);
+              
+            if (!isDuplicate) {
+              await supabase.from('chat_messages').insert({
+                document_id: documentId,
+                role: 'user',
+                content: userText,
+              });
+            }
+          }
+        }
+
         // assistant 메시지 저장
-        const textContent = (message as any).message?.content || (message as any).content || '';
+        const assistantMsg = (message as any).message || message;
+        let textContent = assistantMsg.content || '';
+        
+        if (!textContent && assistantMsg.parts) {
+          textContent = assistantMsg.parts
+            .filter((p: any) => p.type === 'text')
+            .map((p: any) => p.text)
+            .join('');
+        }
 
         if (textContent) {
           await supabase.from('chat_messages').insert({
@@ -329,22 +379,6 @@ export default function ChatPanel({
             role: 'assistant',
             content: textContent,
           });
-        }
-
-        // 직전 user 메시지도 저장 (messages 배열의 마지막 user 메시지)
-        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-        if (lastUserMsg) {
-          const userText = lastUserMsg.parts
-            ?.filter(p => p.type === 'text')
-            .map((p: any) => p.text)
-            .join('') || '';
-          if (userText) {
-            await supabase.from('chat_messages').insert({
-              document_id: documentId,
-              role: 'user',
-              content: userText,
-            });
-          }
         }
       } catch (err) {
         console.error('채팅 메시지 저장 실패:', err);
@@ -398,7 +432,16 @@ export default function ChatPanel({
   // 채팅 히스토리 불러오기
   useEffect(() => {
     const fetchHistory = async () => {
-      if (!documentId || isNewDocument) return;
+      if (!documentId) {
+        setIsHistoryLoaded(true);
+        return;
+      }
+      
+      // 새 문서이고 파일 업로드도 아니면 기존 채팅 기록 없음
+      if (isNewDocument && !isUploaded) {
+        setIsHistoryLoaded(true);
+        return;
+      }
       
       try {
         const { createClient } = await import('@/lib/supabase/client');
@@ -426,31 +469,74 @@ export default function ChatPanel({
         console.error('Failed to fetch chat history:', err);
         setShowHistoryError(true);
         setTimeout(() => setShowHistoryError(false), 3000);
+      } finally {
+        setIsHistoryLoaded(true);
       }
     };
 
     fetchHistory();
-  }, [documentId, isNewDocument, setMessages]);
+  }, [documentId, isNewDocument, isUploaded, setMessages]);
 
   useEffect(() => {
-    if (messages.length > 0 || hasInitializedAnalyizeRef.current) return
+    if (!isHistoryLoaded || !isReady) return;
+    if (messages.length > 0 || hasInitializedAnalyizeRef.current) return;
 
     hasInitializedAnalyizeRef.current = true
 
-    // 초기 안내 메시지 (DB에 저장되지 않음)
-    setMessages([
-      {
-        id: 'initial-greeting',
-        role: 'assistant',
-        parts: [{ 
-          type: 'text', 
-          text: isNewDocument 
-            ? '새로운 문서를 시작하시네요! 👋\n\n어떤 종류의 문서를 작성하실 계획인가요?\n(예: IT 서비스 사업계획서, 주간 운영 보고서, 제안서, 기획안 등)'
-            : '안녕하세요! 문서를 수정하거나 궁금한 점이 있으시면 언제든 말씀해주세요. 👋'
-        }],
+    if (initialPrompt) {
+      // initialPrompt가 있으면 바로 해당 프롬프트로 전송
+      setTimeout(() => {
+        sendMessage({ text: initialPrompt }, {
+          body: {
+            selectedHtml,
+            selectedText,
+            editorContext: truncatedContext,
+          }
+        })
+      }, 500)
+    } else if (isUploaded) {
+      // 파일 업로드의 경우 숨김 메시지로 문서 자동 분석 실행
+      console.log('[DEBUG-CHAT] HIDDEN_ANALYZE_PROMPT 전송 시도. 현재 editorContext 길이:', truncatedContext?.length || 0);
+      setTimeout(() => {
+        console.log('[DEBUG-CHAT] setTimeout 내부에서 sendMessage 호출됨. 전달되는 context 길이:', truncatedContext?.length || 0);
+        sendMessage({ text: HIDDEN_ANALYZE_PROMPT }, {
+          body: {
+            selectedHtml,
+            selectedText,
+            editorContext: truncatedContext,
+          }
+        })
+      }, 800)
+    } else {
+      // 기존 채팅 기록이 없을 때만 인사말을 출력합니다.
+      // (만약 위에서 채팅 기록을 로드했다면 messages.length > 0이 되어 이 로직으로 진입하지 않음)
+      if (!isNewDocument) {
+        // 기존 문서 로드 시 (파일 업로드 아님) 일반 인사말만 출력
+        setMessages([
+          {
+            id: 'initial-greeting',
+            role: 'assistant',
+            parts: [{ 
+              type: 'text', 
+              text: '안녕하세요! 문서를 수정하거나 궁금한 점이 있으시면 언제든 말씀해주세요. 👋'
+            }],
+          }
+        ])
+      } else {
+        // 빈 문서로 시작하는 경우 초기 인삿말
+        setMessages([
+          {
+            id: 'initial-greeting',
+            role: 'assistant',
+            parts: [{ 
+              type: 'text', 
+              text: '새로운 문서를 시작하시네요! 👋\n\n어떤 종류의 문서를 작성하실 계획인가요?\n(예: IT 서비스 사업계획서, 주간 운영 보고서, 제안서, 기획안 등)'
+            }],
+          }
+        ])
       }
-    ])
-  }, [messages.length, isNewDocument, setMessages])
+    }
+  }, [isHistoryLoaded, isReady, messages.length, isNewDocument, isUploaded, setMessages, initialPrompt, sendMessage, selectedHtml, selectedText, truncatedContext])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -498,6 +584,11 @@ export default function ChatPanel({
                     ? m.parts.filter(p => p.type === 'text').map((p: any) => p.text).join('')
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     : (m as any).content || (m as any).text || '';
+
+                  // 시스템 숨김 명령어 렌더링 필터링
+                  if (m.role === 'user' && textContent.trim() === HIDDEN_ANALYZE_PROMPT) {
+                    return null;
+                  }
 
                   return (
                     <div key={m.id} className={cn("flex flex-col gap-2", m.role === 'user' ? "items-end" : "items-start")}>
