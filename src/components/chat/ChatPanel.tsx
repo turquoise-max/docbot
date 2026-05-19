@@ -238,11 +238,26 @@ const ChatPanel = forwardRef<{ sendMessage: (msg: { text: string }) => void }, C
         if (error) throw error;
 
         if (data && data.length > 0) {
-          const uiMessages: UIMessage[] = data.map(m => ({
-            id: m.id,
-            role: m.role as 'user' | 'assistant',
-            parts: [{ type: 'text', text: m.content }]
-          }));
+          const uiMessages: UIMessage[] = data.map(m => {
+            let parsedParts;
+            try {
+              // content가 JSON 형식(parts 배열)인지 확인하고 파싱 시도
+              parsedParts = JSON.parse(m.content);
+              // 만약 배열이 아니면 단순 텍스트로 처리
+              if (!Array.isArray(parsedParts)) {
+                parsedParts = [{ type: 'text', text: m.content }];
+              }
+            } catch (e) {
+              // 파싱 실패(기존 데이터처럼 단순 텍스트인 경우) 하위 호환성 유지
+              parsedParts = [{ type: 'text', text: m.content }];
+            }
+
+            return {
+              id: m.id,
+              role: m.role as 'user' | 'assistant',
+              parts: parsedParts
+            };
+          });
           setMessages(uiMessages);
           hasInitializedAnalyizeRef.current = true;
         }
@@ -280,32 +295,34 @@ const ChatPanel = forwardRef<{ sendMessage: (msg: { text: string }) => void }, C
         );
       }, 800)
     } else {
-      // 기존 채팅 기록이 없을 때만 인사말을 출력합니다.
-      // (만약 위에서 채팅 기록을 로드했다면 messages.length > 0이 되어 이 로직으로 진입하지 않음)
-      if (!isNewDocument) {
-        // 기존 문서 로드 시 (파일 업로드 아님) 일반 인사말만 출력
+      // 1. 기존 문서 재진입 시 (채팅 이력 있음): 
+      // 추가 인사말을 렌더링하지 않고 입력창의 placeholder를 통해 조용히 안내합니다.
+      // 2. 완전 새로운 빈 문서인 경우: 
+      // 인사말을 출력하고, 이를 영구적으로 남기기 위해 DB에 바로 저장합니다.
+      if (isNewDocument && messages.length === 0) {
+        const greetingText = '새로운 문서를 시작하시네요! 👋\n\n어떤 종류의 문서를 작성하실 계획인가요?\n(예: IT 서비스 사업계획서, 주간 운영 보고서, 제안서, 기획안 등)';
+        
         setMessages([
           {
             id: 'initial-greeting',
             role: 'assistant',
-            parts: [{ 
-              type: 'text', 
-              text: '안녕하세요! 문서를 수정하거나 궁금한 점이 있으시면 언제든 말씀해주세요. 👋'
-            }],
+            parts: [{ type: 'text', text: greetingText }],
           } as UIMessage
-        ])
-      } else {
-        // 빈 문서로 시작하는 경우 초기 인삿말
-        setMessages([
-          {
-            id: 'initial-greeting',
-            role: 'assistant',
-            parts: [{ 
-              type: 'text', 
-              text: '새로운 문서를 시작하시네요! 👋\n\n어떤 종류의 문서를 작성하실 계획인가요?\n(예: IT 서비스 사업계획서, 주간 운영 보고서, 제안서, 기획안 등)'
-            }],
-          } as UIMessage
-        ])
+        ]);
+
+        // 초기 인사말을 DB에 즉시 저장
+        if (documentId) {
+          import('@/lib/supabase/client').then(({ createClient }) => {
+            const supabase = createClient();
+            supabase.from('chat_messages').insert({
+              document_id: documentId,
+              role: 'assistant',
+              content: JSON.stringify([{ type: 'text', text: greetingText }]),
+            }).then(({ error }) => {
+              if (error) console.error('[초기 인사말 저장 실패]', error);
+            });
+          });
+        }
       }
     }
   }, [isHistoryLoaded, isReady, messages.length, isNewDocument, isUploaded, setMessages, initialPrompt, append, selectedHtml, selectedText, truncatedContext])
@@ -315,12 +332,27 @@ const ChatPanel = forwardRef<{ sendMessage: (msg: { text: string }) => void }, C
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ✨ 클라이언트 오케스트레이션: planDocument 완료 감지 후 자동 다음 단계 트리거
+  // ✨ 클라이언트 오케스트레이션 및 자동 강제 동기화 (Auto-Save)
+  // 스트리밍이 종료되고 화면 상태가 안정화되었을 때, 이 최신 상태를 무조건 DB에 동기화합니다.
   useEffect(() => {
     if (isStreaming || messages.length === 0) return;
 
     const lastMessage = messages[messages.length - 1];
     if (lastMessage.role !== 'assistant') return;
+
+    // 1. 상태 안정화 시 강제 동기화 핑 (isSyncOnly)
+    // AI의 스트리밍이 끝나고 도구 상태(call -> result)가 확정된 이 시점의 완벽한 messages 배열을 서버에 밀어넣습니다.
+    if (documentId) {
+      fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          documentId,
+          messages,
+          isSyncOnly: true // AI 답변 생성 없이 DB Full Sync만 수행
+        })
+      }).catch(err => console.error('[Auto-Save 동기화 실패]', err));
+    }
 
     // planDocument 도구 결과가 있는지 확인
     const planPart = lastMessage.parts?.find((p: any) => {
