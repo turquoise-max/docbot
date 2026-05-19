@@ -23,7 +23,9 @@ import {
   ChevronDown,
   CheckSquare,
   Square,
-  FilePlus
+  FilePlus,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -68,6 +70,10 @@ export default function ArchivePage() {
   const [isCreating, setIsCreating] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
 
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1)
+  const ITEMS_PER_PAGE = 10
+
   const officialTemplates = [
     { id: '1', title: '사업계획서', desc: '표준 사업계획서 양식' },
     { id: '2', title: '운영계획서', desc: '주간/월간 운영계획서 양식' },
@@ -105,6 +111,11 @@ export default function ArchivePage() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, selectedFolderId, sortBy])
 
   const handleCreateFolder = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
@@ -375,6 +386,12 @@ export default function ArchivePage() {
       return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
     }
   })
+
+  const totalPages = Math.ceil(filteredDocuments.length / ITEMS_PER_PAGE)
+  const paginatedDocuments = filteredDocuments.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  )
 
   return (
     <div className="flex h-screen bg-white" onClick={() => { setOpenFolderMenuId(null); }}>
@@ -649,7 +666,7 @@ export default function ArchivePage() {
                       </tr>
                     </thead>
                     <tbody className="text-sm">
-                      {filteredDocuments.map(doc => {
+                      {paginatedDocuments.map(doc => {
                         const isSelected = selectedIds.includes(doc.id)
                         return (
                         <tr key={doc.id} className={`border-b transition-colors group ${isSelected ? 'bg-blue-50/50' : 'hover:bg-gray-50'}`}>
@@ -717,7 +734,7 @@ export default function ArchivePage() {
               </div>
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                  {filteredDocuments.map(doc => {
+                  {paginatedDocuments.map(doc => {
                     const isSelected = selectedIds.includes(doc.id)
                     return (
                       <div 
@@ -775,6 +792,41 @@ export default function ArchivePage() {
                       </div>
                     )
                   })}
+                </div>
+              )}
+              
+              {/* Pagination UI */}
+              {totalPages > 1 && (
+                <div className="flex justify-center items-center gap-2 mt-8 mb-4">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="p-1 rounded-md text-gray-500 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+                  
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`w-8 h-8 flex items-center justify-center rounded-md text-sm font-medium transition-colors ${
+                        currentPage === page
+                          ? 'bg-blue-600 text-white'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                  
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="p-1 rounded-md text-gray-500 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ChevronRight size={20} />
+                  </button>
                 </div>
               )}
               </>

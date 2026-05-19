@@ -295,209 +295,41 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           });
 
           if (!response.ok) throw new Error('Conversion failed');
-
           const sfdt = await response.text();
 
-          if (editor.selection.isEmpty) {
-            editor.editor.paste(sfdt);
-          } else {
+          try {
+            editor.selection.selectBookmark('AI_TARGET');
+            editor.editor.deleteBookmark('AI_TARGET');
+          } catch (e) {}
+
+          if (!editor.selection.isEmpty) {
             editor.editor.delete();
-            editor.editor.paste(sfdt);
           }
+          editor.editor.paste(sfdt);
         } catch (error) {
           console.error('HTML to SFDT 변환 실패, 일반 텍스트로 fallback:', error);
           if (!editor.selection.isEmpty) {
             editor.editor.delete();
           }
-          editor.editor.insertText(text);
+          editor.editor.insertText(text.replace(/<[^>]+>/g, ''));
         }
       },
 
       previewSelection: async (
         html: string,
-        textBefore?: string,
-        targetText?: string,
-        textAfter?: string,
-        targetType?: 'text' | 'table',
-        targetKeyword?: string
+        _textBefore?: string,
+        _targetText?: string,
+        _textAfter?: string,
+        _targetType?: 'text' | 'table',
+        _targetKeyword?: string
       ): Promise<boolean> => {
         const editor = containerRef.current?.documentEditor;
         if (!editor) return false;
 
         let originalUser: string | undefined;
 
-        const normalize = (s: string) =>
-          s.replace(/[\r\n]+/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-
         try {
-          const tempBookmark = 'ai_temp_position_' + Date.now();
-          editor.editor.insertBookmark(tempBookmark);
-          const hadSelection = !editor.selection.isEmpty;
-
-          // serialize()로 전체 텍스트 추출 — 커서 건드리지 않음
-          const fullText = extractTextFromSfdt(editor.serialize());
-
-          editor.selection.selectBookmark(tempBookmark);
-          editor.editor.deleteBookmark(tempBookmark);
-
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let bestMatchResult: any = null;
-          let bestScore = -1;
-          let foundSomething = false;
-
-          // --- 텍스트 탐색 다단계 폴백 전략 ---
-          if (editor.searchModule) {
-            // [0단계] targetKeyword 우선 검색
-            if (targetKeyword) {
-              console.log(`0단계 시도: ${targetKeyword}`);
-              // @ts-expect-error syncfusion types might be incomplete
-              const results: any[] = editor.searchModule.findAll(targetKeyword, 'None');
-              if (results && results.length === 1) {
-                bestMatchResult = results[0];
-                console.log('0단계 성공 (단일 매칭)');
-              } else if (results && results.length > 1) {
-                let searchStartIndex = 0;
-                results.forEach((res: any) => {
-                  let score = 100; // Keyword 매칭 시 기본 가점
-                  const matchIndex = fullText.indexOf(targetKeyword, searchStartIndex);
-                  if (matchIndex !== -1) {
-                    if (textBefore) {
-                      const actualBefore = fullText.substring(Math.max(0, matchIndex - textBefore.length - 40), matchIndex);
-                      if (normalize(actualBefore).includes(normalize(textBefore))) score += 50;
-                    }
-                    if (textAfter) {
-                      const actualAfter = fullText.substring(matchIndex + targetKeyword.length, matchIndex + targetKeyword.length + textAfter.length + 40);
-                      if (normalize(actualAfter).includes(normalize(textAfter))) score += 50;
-                    }
-                    searchStartIndex = matchIndex + targetKeyword.length;
-                  }
-                  if (score > bestScore) {
-                    bestScore = score;
-                    bestMatchResult = res;
-                  }
-                });
-                console.log(`0단계 결과 (복수 매칭 중 최고 점수: ${bestScore})`);
-              }
-            }
-
-            // [1단계] targetText 전체 검색
-            if (!bestMatchResult && targetText) {
-              console.log(`1단계 시도: ${targetText}`);
-              // @ts-expect-error syncfusion types might be incomplete
-              const results: any[] = editor.searchModule.findAll(targetText, 'None');
-              if (results && results.length > 0) {
-                bestMatchResult = results[0]; // 전체 매칭 시 우선 신뢰
-                console.log('1단계 성공');
-              }
-            }
-
-            // [2단계] targetText 정규화 후 검색
-            if (!bestMatchResult && targetText) {
-              const normalizedQuery = normalize(targetText);
-              console.log(`2단계 시도: ${normalizedQuery}`);
-              // @ts-expect-error syncfusion types might be incomplete
-              const results: any[] = editor.searchModule.findAll(normalizedQuery, 'None');
-              if (results && results.length > 0) {
-                bestMatchResult = results[0];
-                console.log('2단계 성공');
-              }
-            }
-
-            // [3단계] 문장 단위 분할 검색
-            if (!bestMatchResult && targetText) {
-              const sentences = targetText.split(/[.!?\r\n]+/).map(s => s.trim()).filter(s => s.length > 5);
-              sentences.sort((a, b) => b.length - a.length); // 긴 문장 우선
-              for (const sentence of sentences) {
-                console.log(`3단계 시도: ${sentence}`);
-                // @ts-expect-error syncfusion types might be incomplete
-                const results: any[] = editor.searchModule.findAll(sentence, 'None');
-                if (results && results.length > 0) {
-                  bestMatchResult = results[0];
-                  console.log(`3단계 성공 (${sentence})`);
-                  break;
-                }
-              }
-            }
-
-            // [4단계] 핵심 키워드 추출 검색 (4글자 이상)
-            if (!bestMatchResult && targetText) {
-              const words = targetText.split(/\s+/).filter(w => w.length >= 4);
-              if (words.length > 0) {
-                console.log(`4단계 시도 (단어 추출): ${words.join(', ')}`);
-                for (const word of words) {
-                  // @ts-expect-error syncfusion types might be incomplete
-                  const results: any[] = editor.searchModule.findAll(word, 'None');
-                  if (results && results.length > 0) {
-                    let searchStartIndex = 0;
-                    results.forEach((res: any) => {
-                      let score = word.length;
-                      const matchIndex = fullText.indexOf(word, searchStartIndex);
-                      if (matchIndex !== -1) {
-                        if (textBefore) {
-                          const actualBefore = fullText.substring(Math.max(0, matchIndex - textBefore.length - 40), matchIndex);
-                          if (normalize(actualBefore).includes(normalize(textBefore))) score += 20;
-                        }
-                        if (textAfter) {
-                          const actualAfter = fullText.substring(matchIndex + word.length, matchIndex + word.length + textAfter.length + 40);
-                          if (normalize(actualAfter).includes(normalize(textAfter))) score += 20;
-                        }
-                        searchStartIndex = matchIndex + word.length;
-                      }
-                      if (score > bestScore) {
-                        bestScore = score;
-                        bestMatchResult = res;
-                      }
-                    });
-                  }
-                }
-                if (bestMatchResult) console.log('4단계 성공');
-              }
-            }
-
-            // [5단계] textBefore만으로 위치 추정
-            if (!bestMatchResult && textBefore) {
-              const normalizedBefore = normalize(textBefore);
-              console.log(`5단계 시도: ${normalizedBefore}`);
-              // @ts-expect-error syncfusion types might be incomplete
-              const results: any[] = editor.searchModule.findAll(normalizedBefore, 'None');
-              if (results && results.length > 0) {
-                bestMatchResult = results[results.length - 1]; // 보통 마지막 발생 지점 다음이 수정 위치인 경우가 많음
-                console.log('5단계 성공 (textBefore 기반)');
-              }
-            }
-
-            if (bestMatchResult) {
-              editor.searchModule.navigate(bestMatchResult);
-              foundSomething = true;
-
-              // 🚀 핵심: AI가 표(Table)를 타겟팅한 경우
-              if (targetType === 'table') {
-                try {
-                  editor.selection.selectTable();
-                } catch (e) {
-                  console.warn("표 선택에 실패했습니다.", e);
-                }
-              } else if (normalize(bestMatchResult.text) === normalize(textBefore || '')) {
-                // 5단계 등 textBefore로 찾은 경우 매칭 위치 바로 다음 문단으로 이동
-                editor.selection.moveToNextParagraph();
-                // 해당 문단 전체 선택
-                editor.selection.selectParagraph();
-              }
-            }
-          }
-
-          if (!foundSomething && hadSelection) {
-            foundSomething = true;
-          }
-
-          if (!foundSomething) {
-            console.warn('에디터에서 수정할 위치를 찾지 못했습니다.');
-            return false;
-          }
-
-          // 8. SFDT 변환 호출
+          // 1. SFDT 변환 완료 전까지 텍스트 유지 (실패 시 원본 보존)
           const response = await fetch('/api/document/convert-html', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -508,35 +340,29 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           const sfdt = await response.text();
 
           originalUser = editor.currentUser;
+          
+          // 2. 추적 모드 끄기 (기존 텍스트를 화면에서 완전히 삭제하기 위함)
+          editor.enableTrackChanges = false;
+
+          // 3. 북마크 복원 (유저가 마지막으로 드래그한 위치)
+          try {
+            editor.selection.selectBookmark('AI_TARGET');
+            editor.editor.deleteBookmark('AI_TARGET');
+          } catch (e) {
+            console.warn('AI_TARGET 북마크를 찾을 수 없습니다.', e);
+          }
+
+          // 4. 선택 영역 삭제 (추적 오프 상태이므로 취소선 없이 깨끗이 지워짐)
+          if (!editor.selection.isEmpty) {
+            editor.editor.delete(); 
+          }
+
+          // 5. 추적 모드 켜기 및 AI Assistant로 변경
           editor.enableTrackChanges = true;
-
-          // 🌟 1. 스타일 복원을 위한 변수 선언
-          let originalStyle: string | undefined;
-
-          // 🌟 2. 덮어쓰기 전에 기존 스타일 이름 안전하게 저장
-          if (!editor.selection.isEmpty && foundSomething) {
-            originalStyle = editor.selection.paragraphFormat.styleName;
-          }
-
-          // 🌟 3. 툴바 크래시 방지: delete() 없이 paste()로 자동 덮어쓰기
           editor.currentUser = 'AI Assistant';
-          
-          if (!editor.selection.isEmpty && foundSomething) {
-            // 레이아웃 엔진과 툴바 상태가 꼬이지 않도록 10ms의 미세한 딜레이 부여
-            await new Promise(resolve => setTimeout(resolve, 10));
-          }
-          
-          // 선택 영역이 있으면 지우고 붙여넣기, 없으면 그냥 붙여넣기가 자동으로 수행됨
-          editor.editor.paste(sfdt); 
 
-          // 🌟 4. 새로운 내용을 붙여넣은 직후, 저장해둔 스타일 복원
-          if (originalStyle && originalStyle !== 'Normal') {
-            try {
-              editor.editor.applyStyle(originalStyle);
-            } catch (e) {
-              console.warn("스타일 복원 실패:", e);
-            }
-          }
+          // 6. SFDT 삽입 (새로운 텍스트가 파란색 밑줄로 표시됨)
+          editor.editor.paste(sfdt); 
 
           return true;
           
@@ -707,8 +533,16 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         onMouseUp={() => {
           const editor = containerRef.current?.documentEditor;
           const hasSelection = editor && !editor.selection?.isEmpty;
-          // 선택된 텍스트가 있으면 드래그 상태를 유지해 툴바가 닫히지 않도록 함
-          // 다음 mouseDown 시 초기화됨
+          
+          if (hasSelection) {
+            try {
+              editor.editor.deleteBookmark('AI_TARGET');
+            } catch (e) {}
+            try {
+              editor.editor.insertBookmark('AI_TARGET');
+            } catch (e) {}
+          }
+          
           if (!hasSelection) {
             isMouseSelectingRef.current = false;
           }

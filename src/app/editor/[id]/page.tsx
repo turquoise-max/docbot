@@ -40,6 +40,7 @@ function EditorContentInner() {
   
   // 자동저장 관련 refs 및 상태
   const lastTypingTimeRef = useRef<number>(0)
+  const isDirtyRef = useRef<boolean>(false)
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
 
   // 커스텀 훅을 통한 초기화
@@ -56,6 +57,7 @@ function EditorContentInner() {
 
   const handleContentChange = useCallback((text: string) => {
     setContent(text);
+    isDirtyRef.current = true;
     lastTypingTimeRef.current = Date.now();
   }, []);
 
@@ -132,7 +134,7 @@ function EditorContentInner() {
       if (error) throw error;
 
       // 2. 내용이 변경된 경우에만 versions 테이블에 스냅샷 저장
-      if (content !== lastSavedContentRef.current) {
+      if (isDirtyRef.current || content !== lastSavedContentRef.current) {
         // 버전 삽입
         const { error: versionError } = await supabase
           .from('versions')
@@ -162,6 +164,7 @@ function EditorContentInner() {
 
       setSaveStatus('saved');
       lastSavedContentRef.current = content;
+      isDirtyRef.current = false;
       
       setTimeout(() => {
         setSaveStatus('idle');
@@ -216,7 +219,7 @@ function EditorContentInner() {
       // 조건 확인
       const now = Date.now();
       const timeSinceLastTyping = now - lastTypingTimeRef.current;
-      const hasChanges = content !== lastSavedContentRef.current;
+      const hasChanges = isDirtyRef.current;
       
       if (
         timeSinceLastTyping >= 3000 && // 3초 이상 경과
@@ -243,6 +246,7 @@ function EditorContentInner() {
             } else {
               console.log('자동 저장 완료');
               lastSavedContentRef.current = content;
+              isDirtyRef.current = false;
               
               // "저장됨 ✓" 표시를 위해 saveStatus 활용
               setSaveStatus('saved');
@@ -261,6 +265,40 @@ function EditorContentInner() {
 
     return () => clearInterval(interval);
   }, [content, documentId, isInitializing, supabase, editorRef, isSaving, saveStatus]);
+
+  // 페이지 이탈(언마운트) 시 미저장 내용 강제 저장
+  useEffect(() => {
+    return () => {
+      if (isDirtyRef.current && documentId && editorRef.current) {
+        const sfdt = editorRef.current.getSfdt();
+        if (sfdt) {
+          console.log('페이지 이탈 감지: 미저장 내용 자동 저장 시도...');
+          // unmount 시점이므로 fire-and-forget 방식으로 전송
+          supabase
+            .from('documents')
+            .update({ 
+              content_html: sfdt,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', documentId)
+            .then(() => console.log('이탈 시 자동 저장 완료'))
+            .catch(e => console.error('이탈 시 자동 저장 실패', e));
+        }
+      }
+    };
+  }, [documentId, supabase, editorRef]);
+
+  // 새로고침/창 닫기 시 미저장 경고
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirtyRef.current || isSaving || saveStatus === 'saving') {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isSaving, saveStatus]);
 
   const handleExport = () => {
     if (editorRef.current) {
@@ -304,7 +342,7 @@ function EditorContentInner() {
                 </span>
               ) : saveStatus === 'saved' ? (
                 <span className="text-[11px] text-gray-400 flex items-center gap-1">✓ 저장됨</span>
-              ) : content !== lastSavedContentRef.current ? (
+              ) : isDirtyRef.current ? (
                 <span className="text-gray-400 text-[10px] shrink-0">●</span>
               ) : null}
             </div>

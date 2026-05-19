@@ -9,11 +9,7 @@ export function UpdateEditorTool({
   addToolResult
 }: { 
   args: { 
-    modifiedHtml?: string; 
-    textBefore?: string; 
-    targetText?: string; 
-    textAfter?: string;
-    targetKeyword?: string;
+    modifiedHtml?: string;
     isDraftMode?: boolean;
   }
   toolCallId: string
@@ -29,23 +25,16 @@ export function UpdateEditorTool({
     if (status === 'pending' && !hasPreviewed.current && editorRef?.current) {
       hasPreviewed.current = true
       
-      // 초안 모드(isDraftMode)가 true이거나 대상 텍스트가 명확하지 않을 때는 전체 덮어쓰기 로직으로 폴백
-      if (args.isDraftMode || (!args.targetText && !args.targetKeyword)) {
-        console.log('[DEBUG-CHAT] isDraftMode이거나 targetText가 없어 전체 내용을 삽입합니다.');
+      if (args.isDraftMode) {
+        console.log('[DEBUG-CHAT] isDraftMode 전체 내용 삽입');
         editorRef.current.replaceSelection(args.modifiedHtml)
           .then(() => {
             setStatus('applied');
             addToolResult({ toolCallId, result: '시스템 알림: 새 문서에 초안이 성공적으로 삽입되었습니다.' });
           });
       } else {
-        editorRef.current.previewSelection(
-          args.modifiedHtml, 
-          args.textBefore, 
-          args.targetText, 
-          args.textAfter,
-          'text',
-          args.targetKeyword
-        )
+        // 단일 수정 - 프론트엔드 Selection 보존 방식
+        editorRef.current.previewSelection(args.modifiedHtml)
           .then((success: boolean | void) => {
             if (success === false) {
               setStatus('rejected')

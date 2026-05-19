@@ -27,14 +27,10 @@ export const getActiveTools = (allowAskClarification: boolean) => {
     }),
 
     updateEditor: tool({
-      description: '[3단계 또는 단일 수정] 문서의 내용을 수정하거나, 완성된 초안을 에디터에 덮어쓸 때 호출합니다.',
+      description: '[단일 수정] 에디터의 선택된 텍스트 영역을 수정한 결과물로 대체합니다. 시스템이 선택 영역을 자동 추적하므로 HTML 결과물만 반환하세요.',
       inputSchema: z.object({
-        modifiedHtml: z.string().describe('적용할 최종 HTML (단일 요소 또는 전체)'),
-        targetText: z.string().optional().describe('수정할 원본 텍스트 (부분 수정 시)'),
-        targetKeyword: z.string().optional().describe('핵심 단어 1~2개'),
-        textBefore: z.string().optional().describe('앞 문장'),
-        textAfter: z.string().optional().describe('뒤 문장'),
-        isDraftMode: z.boolean().optional().describe('전체 덮어쓰기 여부 (true면 전체 덮어쓰기)'),
+        modifiedHtml: z.string().describe('선택된 텍스트 영역을 대체할 최종 HTML'),
+        isDraftMode: z.boolean().optional().describe('전체 문서 덮어쓰기 여부'),
       }),
     }),
 
