@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-// @ts-expect-error html-to-docx handles types poorly but works fine in node
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore html-to-docx handles types poorly but works fine in node
 import HTMLtoDOCX from 'html-to-docx';
 import * as cheerio from 'cheerio';
 

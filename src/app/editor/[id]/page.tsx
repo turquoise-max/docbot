@@ -458,7 +458,6 @@ function EditorContentInner() {
             </div>
           }
         >
-          {/* @ts-ignore - ref passing for programmatic message sending */}
           <ChatPanel
             ref={chatPanelRef}
             documentId={documentId}

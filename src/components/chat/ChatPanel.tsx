@@ -497,4 +497,6 @@ const ChatPanel = forwardRef<{ sendMessage: (msg: { text: string }) => void }, C
   )
 })
 
+ChatPanel.displayName = 'ChatPanel';
+
 export default ChatPanel;

@@ -144,7 +144,6 @@ export function ChatMessageItem({ message: m, latestProgressByAgent, addToolResu
               toolCallId={toolCallId}
               toolName={toolName}
               isCompleted={isCompleted}
-              // @ts-expect-error fallback for addToolResult type
               addToolResult={addToolResult}
             />
           );
@@ -159,7 +158,6 @@ export function ChatMessageItem({ message: m, latestProgressByAgent, addToolResu
               toolCallId={toolCallId}
               toolName={toolName}
               isCompleted={isCompleted}
-              // @ts-expect-error fallback for addToolResult type
               addToolResult={addToolResult}
             />
           );

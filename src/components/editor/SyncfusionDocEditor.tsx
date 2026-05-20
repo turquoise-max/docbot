@@ -442,9 +442,10 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
 
             // 3. 내용 덮어쓰기 (open 대신 paste 방식 적용)
             if (targetSfdt) {
-              // 최초 로드 시 빈 문서라면 open을 사용하고, 
+              // 최초 로드 시 빈 문서라면 open을 사용하고,
               // 내용이 이미 있는 상태에서 AI 갱신이라면 selectAll + paste로 덮어씌움
-              if (editor.isEmpty) {
+              // isEmpty는 내부 메서드(get_isEmpty)이므로 우회 확인 혹은 any 처리
+              if ((editor as any).isEmpty) {
                 editor.open(targetSfdt);
               } else {
                 editor.selection.selectAll();
