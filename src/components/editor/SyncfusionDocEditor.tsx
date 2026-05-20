@@ -7,6 +7,10 @@ import {
   Search,
 } from '@syncfusion/ej2-react-documenteditor';
 import { registerLicense, L10n } from '@syncfusion/ej2-base';
+import { useState, useEffect } from 'react';
+
+// Module level cache for license key
+let cachedLicenseKey: string | null = null;
 
 L10n.load({
   ko: {
@@ -121,12 +125,6 @@ L10n.load({
   }
 });
 
-// Register Syncfusion license key
-const syncfusionLicenseKey = process.env.NEXT_PUBLIC_SYNCFUSION_LICENSE_KEY;
-if (syncfusionLicenseKey) {
-  registerLicense(syncfusionLicenseKey);
-}
-
 // Inject required modules
 DocumentEditorContainerComponent.Inject(Toolbar, Search);
 
@@ -218,6 +216,36 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
   (props, ref) => {
     const containerRef = useRef<DocumentEditorContainerComponent>(null);
     const isMouseSelectingRef = useRef(false);
+    const [isLicenseLoaded, setIsLicenseLoaded] = useState(false);
+
+    useEffect(() => {
+      const loadLicense = async () => {
+        if (cachedLicenseKey) {
+          registerLicense(cachedLicenseKey);
+          setIsLicenseLoaded(true);
+          return;
+        }
+
+        try {
+          const res = await fetch('/api/editor/license');
+          if (res.ok) {
+            const data = await res.json();
+            if (data.key) {
+              cachedLicenseKey = data.key;
+              registerLicense(cachedLicenseKey!);
+            }
+          } else {
+            console.error('Failed to load Syncfusion license');
+          }
+        } catch (error) {
+          console.error('Error fetching Syncfusion license:', error);
+        } finally {
+          setIsLicenseLoaded(true);
+        }
+      };
+
+      loadLicense();
+    }, []);
 
     const handleSelectionChange = useCallback(() => {
       const editor = containerRef.current?.documentEditor;
@@ -308,6 +336,11 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           editor.editor.paste(sfdt);
         } catch (error) {
           console.error('HTML to SFDT 변환 실패, 일반 텍스트로 fallback:', error);
+          try {
+            editor.selection.selectBookmark('AI_TARGET');
+            editor.editor.deleteBookmark('AI_TARGET');
+          } catch (e) {}
+
           if (!editor.selection.isEmpty) {
             editor.editor.delete();
           }
@@ -326,10 +359,7 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         const editor = containerRef.current?.documentEditor;
         if (!editor) return false;
 
-        let originalUser: string | undefined;
-
         try {
-          // 1. SFDT 변환 완료 전까지 텍스트 유지 (실패 시 원본 보존)
           const response = await fetch('/api/document/convert-html', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -339,60 +369,26 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
           if (!response.ok) throw new Error('Conversion failed');
           const sfdt = await response.text();
 
-          originalUser = editor.currentUser;
-          
-          // 2. 추적 모드 끄기 (기존 텍스트를 화면에서 완전히 삭제하기 위함)
-          editor.enableTrackChanges = false;
-
-          // 3. 북마크 복원 (유저가 마지막으로 드래그한 위치)
           try {
             editor.selection.selectBookmark('AI_TARGET');
             editor.editor.deleteBookmark('AI_TARGET');
-          } catch (e) {
-            console.warn('AI_TARGET 북마크를 찾을 수 없습니다.', e);
-          }
+          } catch (e) {}
 
-          // 4. 선택 영역 삭제 (추적 오프 상태이므로 취소선 없이 깨끗이 지워짐)
           if (!editor.selection.isEmpty) {
             editor.editor.delete(); 
           }
 
-          // 5. 추적 모드 켜기 및 AI Assistant로 변경
-          editor.enableTrackChanges = true;
-          editor.currentUser = 'AI Assistant';
-
-          // 6. SFDT 삽입 (새로운 텍스트가 파란색 밑줄로 표시됨)
           editor.editor.paste(sfdt); 
 
           return true;
-          
         } catch (error) {
-          console.error('미리보기 적용 실패:', error);
+          console.error('적용 실패:', error);
           return false;
-        } finally {
-          if (editor) {
-            if (originalUser !== undefined) {
-              editor.currentUser = originalUser;
-            }
-            editor.enableTrackChanges = false;
-          }
         }
       },
 
       acceptPreview: () => {
-        const editor = containerRef.current?.documentEditor;
-        if (!editor) return;
-        
-        try {
-          editor.selection.moveToDocumentStart();
-          if (editor.revisions && editor.revisions.length > 0) {
-            editor.revisions.acceptAll();
-          }
-        } catch (error) {
-          console.error('미리보기 수락 중 오류:', error);
-        } finally {
-          editor.enableTrackChanges = false;
-        }
+        // 더 이상 변경 추적(TrackChanges)을 사용하지 않으므로 수락 시 할 작업이 없습니다.
       },
 
       rejectPreview: () => {
@@ -400,18 +396,11 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         if (!editor) return;
         
         try {
-          editor.selection.moveToDocumentStart();
-          if (editor.revisions && editor.revisions.length > 0) {
-            editor.revisions.rejectAll();
-          }
-        } catch (error) {
-          console.error('미리보기 거절 중 오류 발생, 히스토리 강제 롤백 시도:', error);
           if (editor.editorHistory) {
             editor.editorHistory.undo(); 
-            editor.editorHistory.undo(); 
           }
-        } finally {
-          editor.enableTrackChanges = false;
+        } catch (error) {
+          console.error('실행 취소 중 오류 발생:', error);
         }
       },
 
@@ -523,11 +512,18 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
       },
     }));
 
+    if (!isLicenseLoaded) {
+      return (
+        <div className="w-full h-full flex items-center justify-center bg-[#f4f4f4]">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      );
+    }
+
     return (
       <div 
         className="w-full h-full"
         onMouseDown={() => {
-          // 새 드래그 시작 시 항상 활성화 (이전 선택도 초기화)
           isMouseSelectingRef.current = true;
         }}
         onMouseUp={() => {

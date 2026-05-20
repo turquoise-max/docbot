@@ -266,39 +266,63 @@ function EditorContentInner() {
     return () => clearInterval(interval);
   }, [content, documentId, isInitializing, supabase, editorRef, isSaving, saveStatus]);
 
-  // 페이지 이탈(언마운트) 시 미저장 내용 강제 저장
+  // 페이지 이탈 시 미저장 내용 강제 저장 (visibilitychange & beforeunload)
   useEffect(() => {
-    return () => {
-      if (isDirtyRef.current && documentId && editorRef.current) {
-        const sfdt = editorRef.current.getSfdt();
-        if (sfdt) {
-          console.log('페이지 이탈 감지: 미저장 내용 자동 저장 시도...');
-          // unmount 시점이므로 fire-and-forget 방식으로 전송
-          supabase
-            .from('documents')
-            .update({ 
-              content_html: sfdt,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', documentId)
-            .then(() => console.log('이탈 시 자동 저장 완료'))
-            .catch(e => console.error('이탈 시 자동 저장 실패', e));
-        }
+    const saveOnExit = async () => {
+      if (!isDirtyRef.current || !documentId || !editorRef.current) return;
+      
+      const sfdt = editorRef.current.getSfdt();
+      if (!sfdt) return;
+
+      const body = JSON.stringify({ documentId, content_html: sfdt });
+
+      try {
+        // 1순위: keepalive fetch (64KB 제한이 있을 수 있음)
+        const response = await fetch('/api/document/auto-save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          keepalive: true
+        });
+        
+        if (!response.ok) throw new Error('Keepalive fetch failed');
+        console.log('이탈 시 자동 저장 완료 (fetch)');
+      } catch (err) {
+        // 2순위: sendBeacon fallback
+        console.warn('Keepalive fetch 실패, sendBeacon 시도...', err);
+        const blob = new Blob([body], { type: 'application/json' });
+        navigator.sendBeacon('/api/document/auto-save', blob);
+      }
+      
+      // 중복 저장을 방지하기 위해 isDirtyRef 초기화
+      isDirtyRef.current = false;
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        saveOnExit();
       }
     };
-  }, [documentId, supabase, editorRef]);
 
-  // 새로고침/창 닫기 시 미저장 경고
-  useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (isDirtyRef.current || isSaving || saveStatus === 'saving') {
         e.preventDefault();
         e.returnValue = '';
       }
+      saveOnExit();
     };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [isSaving, saveStatus]);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      
+      // 언마운트 시점에도 저장이 안 된 상태라면 시도
+      saveOnExit();
+    };
+  }, [documentId, editorRef, isSaving, saveStatus]);
 
   const handleExport = () => {
     if (editorRef.current) {

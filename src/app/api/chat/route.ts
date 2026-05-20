@@ -19,6 +19,16 @@ export async function POST(req: Request) {
 
   console.log('messages structure:', JSON.stringify(messages.slice(-3), null, 2));
 
+  // 임시 디버그: convertToModelMessages의 실제 구조 확인 (isSyncOnly 처리 전)
+  try {
+    const debugModelMessages = await convertToModelMessages(messages.map((m: any) => ({...m, parts: m.parts || []})));
+    const debugLast = debugModelMessages.length > 0 ? debugModelMessages[debugModelMessages.length - 1] : null;
+    console.log('=== DEBUG last modelMessage ===');
+    console.log(JSON.stringify(debugLast, null, 2));
+  } catch(e) {
+    console.log('debug convert error', e);
+  }
+
   // [핵심 해결책: Full Sync] 
   // 프론트엔드의 최신 메모리 상태(messages)가 언제나 가장 정확하므로, 
   // 복잡한 Update 대신 기존 내역을 지우고 전체를 덮어씁니다.
@@ -26,25 +36,24 @@ export async function POST(req: Request) {
     try {
       const supabase = await createClient();
       
-      // 1. 기존 문서의 채팅 내역 전부 삭제
-      await supabase.from('chat_messages').delete().eq('document_id', documentId);
+      const insertData = messages
+        // DB 저장 시 시스템 숨김 트리거 문자열이 포함된 메시지는 영구 저장되지 않도록 필터링합니다.
+        .filter((m: any) => !m.parts?.some((p: any) => p.text?.startsWith('[SYSTEM_AUTO_TRIGGER:')))
+        .map((m: any, index: number) => {
+          // 순서 보장을 위해 현재 시간에서 밀리초 단위로 미세한 차이를 둡니다.
+          const date = new Date();
+          date.setMilliseconds(date.getMilliseconds() + index * 10);
+          
+          return {
+            id: m.id,
+            document_id: documentId,
+            role: m.role,
+            content: JSON.stringify(m.parts || [{ type: 'text', text: m.content || '' }]),
+            created_at: date.toISOString(),
+          };
+        });
 
-      // 2. 현재 넘어온 최신 messages 배열 전체 삽입
-      // 순서를 보장하기 위해 한 번에 bulk insert 합니다.
-      const insertData = messages.map((m: any, index: number) => {
-        // 순서 보장을 위해 현재 시간에서 밀리초 단위로 미세한 차이를 둡니다.
-        const date = new Date();
-        date.setMilliseconds(date.getMilliseconds() + index * 10);
-        
-        return {
-          document_id: documentId,
-          role: m.role,
-          content: JSON.stringify(m.parts || [{ type: 'text', text: m.content || '' }]),
-          created_at: date.toISOString(),
-        };
-      });
-
-      await supabase.from('chat_messages').insert(insertData);
+      await supabase.from('chat_messages').upsert(insertData, { onConflict: 'id' });
 
     } catch (err) {
       console.error('[DB Full Sync 오류]', err);
@@ -96,7 +105,8 @@ export async function POST(req: Request) {
   // 완료되지 않은 도구 호출(pending 툴)만 안전하게 필터링
   const validMessages = messages.map((m: any) => {
     const cleanParts = m.parts.filter((p: any) => {
-      if (p.type?.startsWith('tool-') && p.state === 'input-available' && p.result === undefined) return false;
+      // result와 output이 둘 다 없는 미완성 도구만 제거 (Vercel AI SDK v6 호환성)
+      if (p.type?.startsWith('tool-') && p.state === 'input-available' && p.result === undefined && p.output === undefined) return false;
       return true;
     });
     return { ...m, parts: cleanParts };
@@ -106,14 +116,30 @@ export async function POST(req: Request) {
 
   const activeTools = getActiveTools(allowAskClarification);
 
+  // === DEBUG LOGGING ===
+  const lastMessage = modelMessages.length > 0 ? modelMessages[modelMessages.length - 1] : null;
+  console.log('modelMessages last:', JSON.stringify(lastMessage, null, 2));
+
+  // 가장 마지막 메시지가 도구 응답(tool)이고, 그 도구가 planDocument인지 확인합니다.
+  const isPlanComplete = lastMessage?.role === 'tool' && Array.isArray(lastMessage.content) && lastMessage.content.some(
+    (c: any) => c.type === 'tool-result' && c.toolName === 'planDocument'
+  );
+
+  console.log('isPlanComplete:', isPlanComplete);
+  // =====================
+
+  const dynamicToolChoice = isPlanComplete ? 'required' : 'auto';
+  console.log('toolChoice:', dynamicToolChoice);
+
   try {
     const result = streamText({
       model: litellm(process.env.LITELLM_MODEL ?? 'gemini/gemini-3.0-flash-preview'),
       system: systemPrompt,
       messages: modelMessages,
       tools: activeTools,
+      toolChoice: dynamicToolChoice,
       // @ts-expect-error maxSteps may not be typed in this ai version
-      maxSteps: 2, // 클라이언트 오케스트레이션 적용 (한 턴당 1번의 툴 호출 + 텍스트 응답 정도만 허용하여 타임아웃 방지)
+      maxSteps: 3, // 서버 사이드 오케스트레이션(plan -> write) 연속 호출을 위해 3으로 증가
       maxRetries: 1,
       experimental_parallelToolCalls: false, // 도구 병렬 호출 방지
       // 진실의 원천이 클라이언트의 messages 배열이 되도록 아키텍처를 변경했으므로, 

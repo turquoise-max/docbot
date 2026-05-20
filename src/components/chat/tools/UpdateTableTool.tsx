@@ -6,20 +6,22 @@ export function UpdateTableTool({
   args, 
   toolCallId, 
   toolName,
+  isCompleted,
   addToolResult
 }: { 
   args: { targetKeyword?: string; tableData?: string[][] }
   toolCallId: string
   toolName: string
+  isCompleted?: boolean;
   addToolResult: (options: { toolCallId: string; result: any }) => void
 }) {
   const { editorRef } = useEditor()
-  const [status, setStatus] = useState<'pending' | 'previewing' | 'applied' | 'rejected'>('pending')
+  const [status, setStatus] = useState<'pending' | 'previewing' | 'applied' | 'rejected'>(isCompleted ? 'applied' : 'pending')
   const hasPreviewed = useRef(false)
 
   useEffect(() => {
     if (!args?.tableData || !args?.targetKeyword) return
-    if (status === 'pending' && !hasPreviewed.current && editorRef?.current) {
+    if (status === 'pending' && !hasPreviewed.current && editorRef?.current && !isCompleted) {
       hasPreviewed.current = true
       
       // SyncfusionDocEditor의 표 전용 함수 호출

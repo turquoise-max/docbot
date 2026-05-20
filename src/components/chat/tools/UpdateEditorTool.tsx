@@ -6,6 +6,7 @@ export function UpdateEditorTool({
   args, 
   toolCallId, 
   toolName,
+  isCompleted,
   addToolResult
 }: { 
   args: { 
@@ -14,33 +15,24 @@ export function UpdateEditorTool({
   }
   toolCallId: string
   toolName: string
+  isCompleted?: boolean;
   addToolResult: (options: { toolCallId: string; result: any }) => void
 }) {
   const { editorRef } = useEditor()
-  const [status, setStatus] = useState<'pending' | 'applied' | 'rejected'>('pending')
+  const [status, setStatus] = useState<'pending' | 'applied' | 'rejected'>(isCompleted ? 'applied' : 'pending')
   const hasPreviewed = useRef(false)
 
   useEffect(() => {
     if (!args?.modifiedHtml) return
-    if (status === 'pending' && !hasPreviewed.current && editorRef?.current) {
+    if (status === 'pending' && !hasPreviewed.current && editorRef?.current && !isCompleted) {
       hasPreviewed.current = true
       
-      if (args.isDraftMode) {
-        console.log('[DEBUG-CHAT] isDraftMode 전체 내용 삽입');
-        editorRef.current.replaceSelection(args.modifiedHtml)
-          .then(() => {
-            setStatus('applied');
-            addToolResult({ toolCallId, result: '시스템 알림: 새 문서에 초안이 성공적으로 삽입되었습니다.' });
-          });
-      } else {
-        // 단일 수정 - 프론트엔드 Selection 보존 방식
-        editorRef.current.previewSelection(args.modifiedHtml)
-          .then((success: boolean | void) => {
-            if (success === false) {
-              setStatus('rejected')
-            }
-          })
-      }
+      console.log('[DEBUG-CHAT] 내용 삽입');
+      editorRef.current.replaceSelection(args.modifiedHtml)
+        .then(() => {
+          setStatus('applied');
+          addToolResult({ toolCallId, result: '시스템 알림: 문서에 내용이 성공적으로 삽입/수정되었습니다.' });
+        });
     }
   }, [args, editorRef, status, toolCallId, toolName, addToolResult])
 
@@ -95,30 +87,5 @@ export function UpdateEditorTool({
     )
   }
 
-  return (
-    <div className="max-w-[85%] w-full p-4 bg-blue-50 border border-blue-100 rounded-lg animate-in slide-in-from-bottom-2 mt-2">
-      <p className="text-sm font-bold text-blue-700 mb-3">AI가 수정한 내용을 적용할까요?</p>
-      <div className="flex gap-2">
-        <button 
-          onClick={() => {
-            if (editorRef?.current) editorRef.current.acceptPreview()
-            setStatus('applied')
-            addToolResult({ toolCallId, result: '사용자가 수정 사항을 수락했습니다.' })
-          }}
-          className="flex-1 flex items-center justify-center gap-1 bg-blue-600 text-white py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
-        >
-          <Check size={16} /> 수락
-        </button>
-        <button 
-          onClick={() => {
-            if (editorRef?.current) editorRef.current.rejectPreview()
-            setStatus('rejected')
-          }}
-          className="flex-1 flex items-center justify-center gap-1 bg-white border border-gray-200 text-gray-600 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
-        >
-          <X size={16} /> 거절
-        </button>
-      </div>
-    </div>
-  )
+  return null;
 }

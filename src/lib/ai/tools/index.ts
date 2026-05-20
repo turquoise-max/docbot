@@ -11,7 +11,7 @@ export const getActiveTools = (allowAskClarification: boolean) => {
         tone: z.string().describe('문서의 톤앤매너 (예: 전문적인, 설득력 있는)'),
       }),
       execute: async () => {
-        return `[시스템 알림] 기획이 완료되었습니다. 사용자의 다음 지시를 대기하세요.`;
+        return `[시스템 알림] 기획이 성공적으로 완료되었습니다. ⚠️ 중요: 여기서 응답을 멈추지 마십시오. 당신은 반드시 방금 기획한 목차와 전략을 바탕으로 즉시 \`writeDocument\` 도구를 호출하여 전체 HTML 초안 작성을 완결지어야 합니다.`;
       }
     }),
 
