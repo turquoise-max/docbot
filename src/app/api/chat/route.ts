@@ -142,6 +142,8 @@ export async function POST(req: Request) {
       maxSteps: 3, // 서버 사이드 오케스트레이션(plan -> write) 연속 호출을 위해 3으로 증가
       maxRetries: 1,
       experimental_parallelToolCalls: false, // 도구 병렬 호출 방지
+      stopSequences: ['ㅇㅇㅇ', '[AUTO]', '[SYSTEM_AUTO_TRIGGER'], // 무한 반복 및 시스템 트리거 출력 방지
+      maxTokens: 8000, // 무한 출력 방지용 상한선
       // 진실의 원천이 클라이언트의 messages 배열이 되도록 아키텍처를 변경했으므로, 
       // 불완전하게 저장될 수 있는 서버 측 onFinish의 DB 개별 저장 로직은 과감하게 제거합니다.
       // (대신 클라이언트에서 스트리밍 종료 시점에 현재 상태를 Sync 통신으로 서버에 밀어넣습니다)

@@ -7,8 +7,11 @@ import AppSidebar from '@/components/layout/AppSidebar'
 import Header from '@/components/layout/Header'
 import VersionHistoryPanel from '@/components/editor/VersionHistoryPanel'
 import { createClient } from '@/lib/supabase/client'
-import SyncfusionDocEditor from '@/components/editor/SyncfusionDocEditor'
+import React, { Suspense } from 'react'
 import { EditorProvider, useEditor } from '@/contexts/EditorContext'
+
+const SyncfusionDocEditor = React.lazy(() => import('@/components/editor/SyncfusionDocEditor'))
+
 import ErrorBoundary from '@/components/common/ErrorBoundary'
 import { FloatingToolbar } from '@/components/editor/FloatingToolbar'
 import { FileX } from 'lucide-react'
@@ -402,11 +405,24 @@ function EditorContentInner() {
                   </div>
                 }
               >
-                <SyncfusionDocEditor 
-                  ref={editorRef} 
-                  onSelectionChange={handleSelectionChange}
-                  onContentChange={handleContentChange}
-                />
+                <Suspense fallback={
+                  <div className="w-full h-full flex flex-col bg-[#f0f0f0] animate-pulse">
+                    <div className="h-[40px] bg-gray-200 border-b border-gray-300 flex items-center px-4 gap-2">
+                      <div className="h-6 w-16 bg-gray-300 rounded"></div>
+                      <div className="h-6 w-8 bg-gray-300 rounded"></div>
+                      <div className="h-6 w-24 bg-gray-300 rounded"></div>
+                    </div>
+                    <div className="flex-1 flex justify-center py-4 bg-[#f4f4f4]">
+                      <div className="w-[816px] bg-white shadow h-full"></div>
+                    </div>
+                  </div>
+                }>
+                  <SyncfusionDocEditor 
+                    ref={editorRef} 
+                    onSelectionChange={handleSelectionChange}
+                    onContentChange={handleContentChange}
+                  />
+                </Suspense>
                 <FloatingToolbar 
                   onAction={(prompt) => {
                     if (chatPanelRef.current) {

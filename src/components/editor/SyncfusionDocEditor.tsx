@@ -155,6 +155,7 @@ export interface SyncfusionDocEditorRef {
   rejectPreview: () => void;
   exportAsDocx: (fileName: string) => void;
   updateTableData: (targetKeyword: string, tableData: string[][]) => Promise<boolean>;
+  isReady: () => boolean;
 }
 
 interface SyncfusionDocEditorProps {
@@ -301,6 +302,11 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
     }, [handleContentChange]);
 
     useImperativeHandle(ref, () => ({
+      isReady: () => {
+        // 컨테이너와 내부 documentEditor가 모두 초기화되었는지 확인
+        return !!containerRef.current?.documentEditor;
+      },
+
       getText: () => {
         return extractFullTextDirectly();
       },
@@ -514,8 +520,15 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
 
     if (!isLicenseLoaded) {
       return (
-        <div className="w-full h-full flex items-center justify-center bg-[#f4f4f4]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="w-full h-full flex flex-col bg-[#f0f0f0] animate-pulse">
+          <div className="h-[40px] bg-gray-200 border-b border-gray-300 flex items-center px-4 gap-2">
+            <div className="h-6 w-16 bg-gray-300 rounded"></div>
+            <div className="h-6 w-8 bg-gray-300 rounded"></div>
+            <div className="h-6 w-24 bg-gray-300 rounded"></div>
+          </div>
+          <div className="flex-1 flex justify-center py-4 bg-[#f4f4f4]">
+            <div className="w-[816px] bg-white shadow h-full"></div>
+          </div>
         </div>
       );
     }
