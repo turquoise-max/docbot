@@ -17,17 +17,17 @@ const litellm = createOpenAICompatible({
 export async function POST(req: Request) {
   const { documentId, messages, editorContext, selectedText, selectedHtml, isNewDocument, isSyncOnly } = await req.json()
 
-  console.log('messages structure:', JSON.stringify(messages.slice(-3), null, 2));
+  // console.log('messages structure:', JSON.stringify(messages.slice(-3), null, 2));
 
   // 임시 디버그: convertToModelMessages의 실제 구조 확인 (isSyncOnly 처리 전)
-  try {
-    const debugModelMessages = await convertToModelMessages(messages.map((m: any) => ({...m, parts: m.parts || []})));
-    const debugLast = debugModelMessages.length > 0 ? debugModelMessages[debugModelMessages.length - 1] : null;
-    console.log('=== DEBUG last modelMessage ===');
-    console.log(JSON.stringify(debugLast, null, 2));
-  } catch(e) {
-    console.log('debug convert error', e);
-  }
+  // try {
+  //   const debugModelMessages = await convertToModelMessages(messages.map((m: any) => ({...m, parts: m.parts || []})));
+  //   const debugLast = debugModelMessages.length > 0 ? debugModelMessages[debugModelMessages.length - 1] : null;
+  //   console.log('=== DEBUG last modelMessage ===');
+  //   console.log(JSON.stringify(debugLast, null, 2));
+  // } catch(e) {
+  //   console.log('debug convert error', e);
+  // }
 
   // [핵심 해결책: Full Sync] 
   // 프론트엔드의 최신 메모리 상태(messages)가 언제나 가장 정확하므로, 
@@ -116,20 +116,14 @@ export async function POST(req: Request) {
 
   const activeTools = getActiveTools(allowAskClarification);
 
-  // === DEBUG LOGGING ===
   const lastMessage = modelMessages.length > 0 ? modelMessages[modelMessages.length - 1] : null;
-  console.log('modelMessages last:', JSON.stringify(lastMessage, null, 2));
-
+  
   // 가장 마지막 메시지가 도구 응답(tool)이고, 그 도구가 planDocument인지 확인합니다.
   const isPlanComplete = lastMessage?.role === 'tool' && Array.isArray(lastMessage.content) && lastMessage.content.some(
     (c: any) => c.type === 'tool-result' && c.toolName === 'planDocument'
   );
 
-  console.log('isPlanComplete:', isPlanComplete);
-  // =====================
-
   const dynamicToolChoice = isPlanComplete ? 'required' : 'auto';
-  console.log('toolChoice:', dynamicToolChoice);
 
   try {
     const result = streamText({

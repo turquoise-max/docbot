@@ -16,13 +16,22 @@ export const getActiveTools = (allowAskClarification: boolean) => {
     }),
 
     writeDocument: tool({
-      description: '[2단계] 기획된 내용을 바탕으로 실제 전체 문서 내용(초안)을 HTML로 작성할 때 호출합니다.',
+      description: `전체 문서 내용을 HTML로 작성하거나 업데이트할 때 호출합니다. 신규 문서 작성 및 기존 문서 전체 수정 시 사용됩니다.
+htmlContent 작성 규칙:
+- h1 1개(제목), h2(섹션), h3(하위항목), h4 이하 금지
+- section 태그로 섹션 분리, margin-bottom:2rem
+- 표: width:100%, border-collapse:collapse, th/td padding:10px 12px, border:1px solid #dee2e6
+- ul/ol padding-left:1.5rem, li margin-bottom:0.4rem
+- strong 문단당 최대 2회, em/u 금지, 인라인 font-size 금지
+- 표: 모든 셀 채우기 필수, 빈 td 금지, 수치는 단위 포함
+- 헤딩 언어 통일: 한국어 문서는 h2/h3 모두 한글, 영문 용어는 괄호 병기
+- h1 color:#0d1f35 / h2 color:#1a3a5c / h3 color:#2c6fad 고정`,
       inputSchema: z.object({
-        summary: z.string().describe('작성된 문서의 핵심 요약'),
+        summary: z.string().describe('UI에 표시될 완료 문구. 기존 문서 수정 시에는 반드시 "문서 수정 완료"라고 짧게 작성하고, 신규 초안 작성 시에는 "문서 초안 작성 완료"라고 작성하세요.'),
         htmlContent: z.string().describe('작성된 순수 HTML 초안 코드 (```html 태그 없이)'),
       }),
       execute: async () => {
-        return `[시스템 알림] 초안 작성이 완료되었습니다. 에디터에 자동 반영됩니다.`;
+        return `[시스템 알림] 문서 작성이 완료되었습니다. 에디터에 자동 반영됩니다.`;
       }
     }),
 

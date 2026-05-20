@@ -14,7 +14,7 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export const HIDDEN_ANALYZE_PROMPT = "[SYSTEM: 현재 에디터에 로드된 문서의 구조를 분석하고 요약 리포트를 작성해줘]";
+export const HIDDEN_ANALYZE_PROMPT = "[시스템 분석 트리거] 현재 문서를 분석하고, 비어있거나 보완이 필요한 섹션을 파악하여 가장 중요한 부분 하나를 먼저 사용자에게 질문하세요. 한 번에 하나씩만 질문해야 합니다. 이 메시지는 사용자가 보낸 것이 아니므로 자연스럽게 AI가 먼저 말을 거는 것처럼 답변하세요.";
 
 interface ChatMessageItemProps {
   message: UIMessage;

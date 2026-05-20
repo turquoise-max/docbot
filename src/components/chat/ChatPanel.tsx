@@ -61,6 +61,16 @@ const ChatPanel = forwardRef<{ sendMessage: (msg: { text: string }) => void }, C
     return finalTrim + '\n...(이하 생략)';
   }, [editorContext])
 
+  const selectedHtmlRef = useRef(selectedHtml);
+  const selectedTextRef = useRef(selectedText);
+  const truncatedContextRef = useRef(truncatedContext);
+
+  useEffect(() => {
+    selectedHtmlRef.current = selectedHtml;
+    selectedTextRef.current = selectedText;
+    truncatedContextRef.current = truncatedContext;
+  }, [selectedHtml, selectedText, truncatedContext]);
+
   const chatHelpers = useChat({
     id: documentId,
     generateId: () => crypto.randomUUID(),
@@ -359,9 +369,9 @@ const ChatPanel = forwardRef<{ sendMessage: (msg: { text: string }) => void }, C
               {
                 body: {
                   documentId,
-                  selectedHtml,
-                  selectedText,
-                  editorContext: truncatedContext,
+                  selectedHtml: selectedHtmlRef.current,
+                  selectedText: selectedTextRef.current,
+                  editorContext: truncatedContextRef.current,
                   isNewDocument
                 }
               }
@@ -385,19 +395,19 @@ const ChatPanel = forwardRef<{ sendMessage: (msg: { text: string }) => void }, C
       const args = inv.args || inv.input;
       
       if (args?.htmlContent && !processedAutoCalls.current.has(toolCallId)) {
-        processedAutoCalls.current.add(toolCallId);
+        processedAutoCalls.current.add(toolCallId); // fix typo from has -> add
         console.log('[DEBUG-ORCHESTRATION] writeDocument 완료 확인. 에디터에 직접 HTML 덮어쓰기 진행.');
-        editorRef.current.replaceSelection(args.htmlContent);
+        editorRef.current.loadDocument(args.htmlContent); // Changed from replaceSelection to loadDocument for whole document update
       }
     }
-  }, [isStreaming, messages, append, documentId, selectedHtml, selectedText, truncatedContext, isNewDocument, editorRef]);
+  }, [isStreaming, messages, append, documentId, isNewDocument, editorRef]);
 
-  // 디버깅: 현재 messages 배열의 상태를 콘솔에 출력
-  useEffect(() => {
-    if (messages.length > 0) {
-      console.log('[DEBUG-MESSAGES]', JSON.stringify(messages, null, 2));
-    }
-  }, [messages])
+  // 디버깅: 현재 messages 배열의 상태를 콘솔에 출력 (제거됨)
+  // useEffect(() => {
+  //   if (messages.length > 0) {
+  //     console.log('[DEBUG-MESSAGES]', JSON.stringify(messages, null, 2));
+  //   }
+  // }, [messages])
 
   return (
     <div 

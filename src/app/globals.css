@@ -20,6 +20,11 @@
   }
 }
 
+/* 문서 에디터 콘텐츠 부드러운 전환 효과 (깜빡임 방지) */
+.e-documenteditor-container {
+  transition: opacity 0.3s ease-in-out;
+}
+
 /* AI 챗 패널과 중복되는 Syncfusion 내장 변경 내용 추적 패널 강제 숨김 */
 .e-de-rev-pane,
 .e-de-review-pane,

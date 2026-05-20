@@ -29,8 +29,11 @@
     "@tiptap/suggestion": "^3.22.2",
     "@types/uuid": "^10.0.0",
     "ai": "^6.0.159",
+    "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "encoding": "^0.1.13",
+    "html-to-docx": "^1.8.0",
     "jszip": "^3.10.1",
     "lucide-react": "^1.14.0",
     "next": "14.2.35",
@@ -49,6 +52,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/cheerio": "^0.22.35",
+    "@types/html-to-docx": "^1.8.1",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",

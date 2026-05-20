@@ -414,14 +414,19 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
         const editor = containerRef.current?.documentEditor;
         if (editor && content) {
           try {
-            // 내용이 JSON 객체의 시작인 '{' 로 시작하는지 아주 간단히 판별
+            // 1. 현재 스크롤 위치 보관
+            const viewerElement = document.getElementById('container_viewerContainer');
+            const currentScrollTop = viewerElement ? viewerElement.scrollTop : 0;
+            const currentScrollLeft = viewerElement ? viewerElement.scrollLeft : 0;
+
             const trimmed = content.trim();
+            let targetSfdt = '';
+
+            // 2. SFDT 추출 로직
             if (trimmed.startsWith('{')) {
-              // SFDT (Syncfusion Document Format) JSON
-              editor.open(content);
+              targetSfdt = content;
             } else {
-              // 일반 HTML 문자열인 경우 변환 API를 통해 SFDT로 로드
-              editor.openBlank(); // 빈 문서로 초기화
+              // HTML -> SFDT 변환
               try {
                 const response = await fetch('/api/document/convert-html', {
                   method: 'POST',
@@ -429,14 +434,39 @@ const SyncfusionDocEditor = memo(forwardRef<SyncfusionDocEditorRef, SyncfusionDo
                   body: JSON.stringify({ html: content }),
                 });
                 if (!response.ok) throw new Error('Conversion failed');
-                const sfdt = await response.text();
-                editor.open(sfdt);
+                targetSfdt = await response.text();
               } catch (convErr) {
-                console.error('HTML 변환 실패 후 일반 텍스트로 폴백:', convErr);
-                // HTML 파싱이 안되는 에러가 났을 때 최후의 보루로 그냥 텍스트로 삽입
-                editor.editor.insertText(content);
+                console.error('HTML 변환 실패:', convErr);
               }
             }
+
+            // 3. 내용 덮어쓰기 (open 대신 paste 방식 적용)
+            if (targetSfdt) {
+              // 최초 로드 시 빈 문서라면 open을 사용하고, 
+              // 내용이 이미 있는 상태에서 AI 갱신이라면 selectAll + paste로 덮어씌움
+              if (editor.isEmpty) {
+                editor.open(targetSfdt);
+              } else {
+                editor.selection.selectAll();
+                editor.editor.paste(targetSfdt);
+              }
+            } else if (!trimmed.startsWith('{')) {
+              // 변환 실패 및 일반 텍스트 폴백
+              editor.selection.selectAll();
+              editor.editor.insertText(content.replace(/<[^>]+>/g, ''));
+            }
+
+            // 4. 스크롤 강제 복원 (렌더링 사이클 대기)
+            setTimeout(() => {
+              const viewer = document.getElementById('container_viewerContainer');
+              if (viewer) {
+                viewer.scrollTop = currentScrollTop;
+                viewer.scrollLeft = currentScrollLeft;
+              }
+              // 커서도 문서 맨 앞으로 리셋 (전체 선택된 상태 해제)
+              editor.selection.moveToDocumentStart();
+            }, 100);
+
           } catch (e) {
             console.error('문서 로드 중 오류:', e);
           }
